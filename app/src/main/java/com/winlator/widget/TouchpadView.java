@@ -255,9 +255,8 @@ public class TouchpadView extends View implements View.OnCapturedPointerListener
                 int dx = finger1.deltaX();
                 int dy = finger1.deltaY();
 
-                WinHandler winHandler = xServer.getWinHandler();
                 if (xServer.isRelativeMouseMovement()) {
-                    winHandler.mouseEvent(MouseEventFlags.MOVE, dx, dy, 0);
+                    xServer.sendRelativeMouseEvent(MouseEventFlags.MOVE, dx, dy, 0);
                 }
                 else xServer.injectPointerMoveDelta(dx, dy);
             }

@@ -831,10 +831,9 @@ public class ControlElement {
                 return true;
             }
             else if (type == Type.MIDI_KEY) {
-                WinHandler winHandler = inputControlsView.getXServer().getWinHandler();
-                if (winHandler != null) {
+                if (inputControlsView.getXServer() != null) {
                     byte note = (byte)(12 + MIDIHandler.parseNoteNumber(text));
-                    winHandler.getMIDIhandler().sendShortMsg((byte) MIDIHandler.CMD_NOTE_ON, (byte)0, note, Byte.MAX_VALUE);
+                    inputControlsView.getXServer().sendMidiShortMessage((byte) MIDIHandler.CMD_NOTE_ON, (byte)0, note, Byte.MAX_VALUE);
                     propertyFlags.set(FLAG_PRESSED);
                     inputControlsView.invalidate();
                 }
@@ -998,10 +997,9 @@ public class ControlElement {
                 inputControlsView.invalidate();
             }
             else if (type == Type.MIDI_KEY) {
-                WinHandler winHandler = inputControlsView.getXServer().getWinHandler();
-                if (winHandler != null) {
+                if (inputControlsView.getXServer() != null) {
                     byte note = (byte)(12 + MIDIHandler.parseNoteNumber(text));
-                    winHandler.getMIDIhandler().sendShortMsg((byte) MIDIHandler.CMD_NOTE_OFF, (byte)0, note, Byte.MAX_VALUE);
+                    inputControlsView.getXServer().sendMidiShortMessage((byte) MIDIHandler.CMD_NOTE_OFF, (byte)0, note, Byte.MAX_VALUE);
                     propertyFlags.unset(FLAG_PRESSED);
                     inputControlsView.invalidate();
                 }

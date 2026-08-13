@@ -1,5 +1,7 @@
 package com.winlator.xserver;
 
+import android.util.Log;
+
 import com.winlator.xconnector.ConnectedClient;
 import com.winlator.xconnector.RequestHandler;
 import com.winlator.xconnector.XInputStream;
@@ -24,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 public class XClientRequestHandler implements RequestHandler {
+    private static final String TAG = "SteamDroid.XServer";
     public static final byte RESPONSE_CODE_ERROR = 0;
     public static final byte RESPONSE_CODE_SUCCESS = 1;
     public static final int MAX_REQUEST_LENGTH = 65535;
@@ -157,6 +160,15 @@ public class XClientRequestHandler implements RequestHandler {
         client.generateSequenceNumber();
         client.setRequestData(requestData);
         client.setRequestLength(requestLength);
+        // Keep extension traffic available for protocol diagnosis without
+        // turning every ordinary X11 request into an unbounded log stream.
+        if (opcode < 0) {
+            Log.d(TAG, "X extension request fd=" + client.fd +
+                " sequence=" + (client.getSequenceNumber() & 0xffff) +
+                " major=" + (opcode & 0xff) +
+                " minor=" + (requestData & 0xff) +
+                " length=" + requestLength);
+        }
 
         try {
             if (opcode < 0) {
@@ -369,6 +381,13 @@ public class XClientRequestHandler implements RequestHandler {
                             DrawRequests.getImage(client, inputStream, outputStream);
                         }
                         break;
+                    case ClientOpcodes.POLY_TEXT8:
+                    case ClientOpcodes.POLY_TEXT16:
+                        // Text is currently rendered through the Android
+                        // surface path; consume the complete no-reply core
+                        // request so X clients can continue their event loop.
+                        client.skipRequest();
+                        break;
                     case ClientOpcodes.CREATE_COLORMAP:
                         client.skipRequest();
                         break;
@@ -390,6 +409,9 @@ public class XClientRequestHandler implements RequestHandler {
                         break;
                     case ClientOpcodes.QUERY_EXTENSION:
                         ExtensionRequests.queryExtension(client, inputStream, outputStream);
+                        break;
+                    case ClientOpcodes.LIST_EXTENSIONS:
+                        ExtensionRequests.listExtensions(client, inputStream, outputStream);
                         break;
                     case ClientOpcodes.GET_KEYBOARD_MAPPING:
                         try (XLock lock = client.xServer.lock(XServer.Lockable.INPUT_DEVICE)) {
@@ -423,8 +445,28 @@ public class XClientRequestHandler implements RequestHandler {
             }
         }
         catch (XRequestError e) {
+            Extension extension = opcode < 0 ? client.xServer.getExtension(opcode) : null;
+            Log.w(TAG, "X request error code=" + (e.getCode() & 0xff) +
+                " sequence=" + (client.getSequenceNumber() & 0xffff) +
+                " major=" + (opcode & 0xff) +
+                " minor=" + (client.getRequestData() & 0xff) +
+                " extension=" + (extension != null ? extension.getName() : "core") +
+                " error=" + e.getClass().getSimpleName());
             client.skipRequest();
             e.sendError(client, opcode);
+        }
+        catch (UnsupportedOperationException e) {
+            Log.w(TAG, "unsupported X request major=" + (opcode & 0xff) +
+                " minor=" + (client.getRequestData() & 0xff) +
+                " sequence=" + (client.getSequenceNumber() & 0xffff), e);
+            client.skipRequest();
+            new XRequestError(1, 0).sendError(client, opcode);
+        }
+        catch (RuntimeException e) {
+            Log.e(TAG, "runtime failure handling X request major=" +
+                (opcode & 0xff) + " minor=" + (client.getRequestData() & 0xff) +
+                " sequence=" + (client.getSequenceNumber() & 0xffff), e);
+            throw new IOException("X request handler failure", e);
         }
 
         return true;

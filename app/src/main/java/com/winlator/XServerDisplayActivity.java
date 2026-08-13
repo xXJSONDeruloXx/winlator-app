@@ -91,6 +91,7 @@ import com.winlator.xserver.ScreenInfo;
 import com.winlator.xserver.Window;
 import com.winlator.xserver.WindowManager;
 import com.winlator.xserver.XServer;
+import com.winlator.xserver.XServerHost;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -231,8 +232,37 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         preloaderDialog.show(R.string.starting_up);
 
         inputControlsManager = new InputControlsManager(this);
-        xServer = new XServer(this, screenInfo);
-        xServer.setWinHandler(winHandler);
+        xServer = new XServer(new XServerHost() {
+            @Override
+            public void debugPrint(String line) {
+                if (debugDialog != null) debugDialog.call(line);
+            }
+
+            @Override
+            public void bringToFront(String processName, long handle) {
+                winHandler.bringToFront(processName, handle);
+            }
+
+            @Override
+            public void relativeMouseEvent(int flags, int dx, int dy, int wheelDelta) {
+                winHandler.mouseEvent(flags, dx, dy, wheelDelta);
+            }
+
+            @Override
+            public void sendGamepadState(com.winlator.inputcontrols.ControlsProfile profile) {
+                winHandler.gamepadHandler.sendGamepadState(profile);
+            }
+
+            @Override
+            public void midiShortMessage(byte status, byte data1, byte data2, byte data3) {
+                winHandler.getMIDIhandler().sendShortMsg(status, data1, data2, data3);
+            }
+
+            @Override
+            public String nativeLibraryDir() {
+                return getApplicationInfo().nativeLibraryDir;
+            }
+        }, screenInfo);
         final boolean[] flags = {false, shortcut != null || getIntent().hasExtra("exec_path")};
         xServer.windowManager.addOnWindowModificationListener(new WindowManager.OnWindowModificationListener() {
             @Override
@@ -329,6 +359,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
     protected void onDestroy() {
         winHandler.stop();
         if (environment != null) environment.stopEnvironmentComponents();
+        if (xServerView != null) xServer.detachRenderer(xServerView.getRenderer());
         super.onDestroy();
     }
 

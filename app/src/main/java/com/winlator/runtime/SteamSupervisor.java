@@ -1,0 +1,165 @@
+package com.winlator.runtime;
+
+import android.content.Context;
+import android.content.pm.ApplicationInfo;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+/** Locates and starts the immutable native supervisor. */
+public final class SteamSupervisor {
+    public static final String EXECUTABLE_NAME = "libsteamdroid_supervisor.so";
+
+    private SteamSupervisor() {}
+
+    public static File executable(Context context) throws IOException {
+        ApplicationInfo applicationInfo = context.getApplicationInfo();
+        File nativeLibraryDir = new File(applicationInfo.nativeLibraryDir).getCanonicalFile();
+        File executable = new File(nativeLibraryDir, EXECUTABLE_NAME).getCanonicalFile();
+        String prefix = nativeLibraryDir.getPath() + File.separator;
+        if (!executable.getPath().startsWith(prefix) || !executable.isFile() || !executable.canExecute()) {
+            throw new IOException("immutable supervisor is not an executable native-library file");
+        }
+        return executable;
+    }
+
+    public static String sha256(File file) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[16 * 1024];
+            try (java.io.InputStream input = new java.io.FileInputStream(file)) {
+                int length;
+                while ((length = input.read(buffer)) != -1) digest.update(buffer, 0, length);
+            }
+            StringBuilder result = new StringBuilder(64);
+            for (byte value : digest.digest()) result.append(String.format("%02x", value));
+            return result.toString();
+        }
+        catch (NoSuchAlgorithmException e) {
+            throw new IOException("SHA-256 unavailable", e);
+        }
+    }
+
+    public static SelfTestResult selfTest(Context context) throws IOException, InterruptedException {
+        File executable = executable(context);
+        String installedSha256 = sha256(executable);
+        String packagedSha256 = packagedSha256(context);
+        Process process = new ProcessBuilder(executable.getPath(), "--self-test")
+            .redirectErrorStream(true)
+            .start();
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) output.append(line).append('\n');
+        }
+        int status = process.waitFor();
+        return new SelfTestResult(status, installedSha256, packagedSha256,
+            installedSha256.equals(packagedSha256), output.toString());
+    }
+
+    private static String packagedSha256(Context context) throws IOException {
+        String entryName = "lib/arm64-v8a/" + EXECUTABLE_NAME;
+        try (ZipFile apk = new ZipFile(context.getApplicationInfo().sourceDir)) {
+            ZipEntry entry = apk.getEntry(entryName);
+            if (entry == null) throw new IOException("supervisor missing from APK: " + entryName);
+            try (java.io.InputStream input = apk.getInputStream(entry)) {
+                return sha256(input);
+            }
+        }
+    }
+
+    private static String sha256(java.io.InputStream input) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[16 * 1024];
+            int length;
+            while ((length = input.read(buffer)) != -1) digest.update(buffer, 0, length);
+            StringBuilder result = new StringBuilder(64);
+            for (byte value : digest.digest()) result.append(String.format("%02x", value));
+            return result.toString();
+        }
+        catch (NoSuchAlgorithmException e) {
+            throw new IOException("SHA-256 unavailable", e);
+        }
+    }
+
+    public static Process start(Context context, String controlSocketPath, String guestProxySocketPath) throws IOException {
+        File executable = executable(context);
+        SteamIdentity identity = SteamIdentity.capture();
+        String canonicalGuestSocket = new File(guestProxySocketPath).getCanonicalPath();
+        String holoRoot = new File(context.getFilesDir(), "steamdroid/holo-rootfs").getCanonicalPath();
+        String substrateRoot = new File(context.getFilesDir(), "steamdroid/guest").getCanonicalPath();
+        String holoPackageDir = new File(context.getFilesDir(), "steamdroid/holo-packages").getCanonicalPath();
+        validateSocketPath(controlSocketPath, "control socket");
+        validateSocketPath(canonicalGuestSocket, "guest proxy");
+
+        // The executable path is immutable and the remaining arguments are
+        // generated by this service, never accepted from UI or guest input.
+        long ownerStartTime = processStartTime(android.os.Process.myPid());
+        String command = "exec " + shellQuote(executable.getPath()) +
+            " --serve --control-socket " + shellQuote(controlSocketPath) +
+            " --guest-proxy-socket " + shellQuote(canonicalGuestSocket) +
+            " --holo-root " + shellQuote(holoRoot) +
+            " --substrate-root " + shellQuote(substrateRoot) +
+            " --holo-package-dir " + shellQuote(holoPackageDir) +
+            " --uid " + identity.uid +
+            " --gid " + identity.gid +
+            " --groups " + shellQuote(identity.groupsCsv()) +
+            " --owner-pid " + android.os.Process.myPid() +
+            " --owner-start-time " + ownerStartTime;
+        return new ProcessBuilder("su", "-c", command).redirectErrorStream(true).start();
+    }
+
+    private static void validateSocketPath(String path, String name) throws IOException {
+        if (path.indexOf('\'') >= 0 || path.indexOf('"') >= 0 || path.indexOf(' ') >= 0) {
+            throw new IOException(name + " socket path is not shell-safe");
+        }
+    }
+
+    private static String shellQuote(String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
+    }
+
+    private static long processStartTime(int pid) throws IOException {
+        String line;
+        try (BufferedReader reader = new BufferedReader(new java.io.FileReader("/proc/" + pid + "/stat"))) {
+            line = reader.readLine();
+        }
+        if (line == null) throw new IOException("missing owner process stat");
+        int commandEnd = line.lastIndexOf(") ");
+        if (commandEnd < 0) throw new IOException("invalid owner process stat");
+        String[] fields = line.substring(commandEnd + 2).trim().split("\\s+");
+        // The substring starts with field 3, so field 22 is index 19.
+        if (fields.length <= 19) throw new IOException("short owner process stat");
+        try {
+            return Long.parseLong(fields[19]);
+        }
+        catch (NumberFormatException e) {
+            throw new IOException("invalid owner process start time", e);
+        }
+    }
+
+    public static final class SelfTestResult {
+        public final int status;
+        public final String sha256;
+        public final String packagedSha256;
+        public final boolean hashMatches;
+        public final String output;
+
+        private SelfTestResult(int status, String sha256, String packagedSha256,
+                               boolean hashMatches, String output) {
+            this.status = status;
+            this.sha256 = sha256;
+            this.packagedSha256 = packagedSha256;
+            this.hashMatches = hashMatches;
+            this.output = output;
+        }
+    }
+}

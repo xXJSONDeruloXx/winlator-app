@@ -36,7 +36,7 @@ public class DrawableManager extends XResourceManager implements XResourceManage
         final Texture texture = drawable.getTexture();
         if (texture != null) {
             if (texture.getOwner() == drawable) texture.setOwner(null);
-            xServer.getRenderer().xServerView.queueEvent(texture::destroy);
+            xServer.destroyTexture(texture);
         }
 
         Callback<Drawable> onDestroyListener = drawable.getOnDestroyListener();

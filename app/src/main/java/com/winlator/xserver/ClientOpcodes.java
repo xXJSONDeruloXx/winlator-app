@@ -45,12 +45,15 @@ public abstract class ClientOpcodes {
     public static final byte POLY_FILL_RECTANGLE = 70;
     public static final byte PUT_IMAGE = 72;
     public static final byte GET_IMAGE = 73;
+    public static final byte POLY_TEXT8 = 74;
+    public static final byte POLY_TEXT16 = 75;
     public static final byte CREATE_COLORMAP = 78;
     public static final byte FREE_COLORMAP = 79;
     public static final byte CREATE_CURSOR = 93;
     public static final byte CREATE_GLYPH_CURSOR = 94;
     public static final byte FREE_CURSOR = 95;
     public static final byte QUERY_EXTENSION = 98;
+    public static final byte LIST_EXTENSIONS = 99;
     public static final byte GET_KEYBOARD_MAPPING = 101;
     public static final byte BELL = 104;
     public static final byte SET_SCREEN_SAVER = 107;

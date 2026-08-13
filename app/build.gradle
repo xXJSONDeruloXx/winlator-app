@@ -1,14 +1,17 @@
 apply plugin: 'com.android.application'
 
 android {
+    // Keep the existing Java source namespace stable while the installed
+    // Android package becomes the independent SteamDroid application.
+    namespace 'com.winlator'
     compileSdk 34
 
     defaultConfig {
-        applicationId 'com.winlator'
+        applicationId 'com.xjsonderulo.steamdroid'
         minSdkVersion 26
         targetSdkVersion 28
-        versionCode 28
-        versionName "11.1"
+        versionCode 1
+        versionName "0.1.0-m0"
     }
 
     buildTypes {
@@ -20,6 +23,38 @@ android {
                 abiFilters 'arm64-v8a'
             }
         }
+    }
+
+    // The privileged supervisor is shipped as an executable ARM64 PIE under
+    // the APK native-library namespace. It must be extracted to
+    // ApplicationInfo.nativeLibraryDir so su can execve it.
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+        doNotStrip '**/libsteamdroid_supervisor.so'
+        // These prebuilt audio libraries are also exposed as CMake IMPORTED
+        // targets by the legacy Winlator MIDI module. Keep one deterministic
+        // copy when AGP merges both native inputs.
+        pickFirst 'lib/arm64-v8a/libFLAC.so'
+        pickFirst 'lib/arm64-v8a/libc++_shared.so'
+        pickFirst 'lib/arm64-v8a/libfluidsynth.so'
+        pickFirst 'lib/arm64-v8a/libfluidsynth-assetloader.so'
+        pickFirst 'lib/arm64-v8a/libgio-2.0.so'
+        pickFirst 'lib/arm64-v8a/libglib-2.0.so'
+        pickFirst 'lib/arm64-v8a/libgmodule-2.0.so'
+        pickFirst 'lib/arm64-v8a/libgobject-2.0.so'
+        pickFirst 'lib/arm64-v8a/libgthread-2.0.so'
+        pickFirst 'lib/arm64-v8a/libinstpatch-1.0.so'
+        pickFirst 'lib/arm64-v8a/liboboe.so'
+        pickFirst 'lib/arm64-v8a/libogg.so'
+        pickFirst 'lib/arm64-v8a/libopus.so'
+        pickFirst 'lib/arm64-v8a/libpcre.so'
+        pickFirst 'lib/arm64-v8a/libpcreposix.so'
+        pickFirst 'lib/arm64-v8a/libsndfile.so'
+        pickFirst 'lib/arm64-v8a/libvorbis.so'
+        pickFirst 'lib/arm64-v8a/libvorbisenc.so'
+        pickFirst 'lib/arm64-v8a/libvorbisfile.so'
     }
 
     lintOptions {
@@ -34,6 +69,7 @@ android {
             path 'src/main/cpp/CMakeLists.txt'
         }
     }
+
 }
 
 dependencies {

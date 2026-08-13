@@ -1,21 +1,24 @@
 package com.winlator.xserver;
 
-import com.winlator.XServerDisplayActivity;
-import com.winlator.contentdialog.DebugDialog;
 import com.winlator.core.CursorLocker;
+import com.winlator.inputcontrols.ControlsProfile;
 import com.winlator.renderer.GLRenderer;
-import com.winlator.winhandler.WinHandler;
+import com.winlator.renderer.Texture;
 import com.winlator.xserver.extensions.BigReqExtension;
 import com.winlator.xserver.extensions.DRI3Extension;
 import com.winlator.xserver.extensions.Extension;
 import com.winlator.xserver.extensions.GLXExtension;
 import com.winlator.xserver.extensions.MITSHMExtension;
 import com.winlator.xserver.extensions.PresentExtension;
+import com.winlator.xserver.extensions.RandRExtension;
 import com.winlator.xserver.extensions.SyncExtension;
 import com.winlator.xserver.extensions.XComposite;
+import com.winlator.xserver.extensions.XFixesExtension;
 
 import java.nio.charset.Charset;
 import java.util.EnumMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class XServer {
@@ -23,7 +26,7 @@ public class XServer {
     public static final short VERSION = 11;
     public static final String VENDOR_NAME = "Elbrus Technologies, LLC";
     public static final Charset LATIN1_CHARSET = Charset.forName("latin1");
-    public final XServerDisplayActivity activity;
+    private final XServerHost host;
     private final Extension[] extensions;
     public final ScreenInfo screenInfo;
     public final PixmapManager pixmapManager;
@@ -40,12 +43,16 @@ public class XServer {
     public final CursorLocker cursorLocker;
     private SHMSegmentManager shmSegmentManager;
     private GLRenderer renderer;
-    private WinHandler winHandler;
+    private final List<Texture> deferredTextureDestroys = new ArrayList<>();
     private final EnumMap<Lockable, ReentrantLock> locks = new EnumMap<>(Lockable.class);
     private boolean relativeMouseMovement = false;
 
-    public XServer(XServerDisplayActivity activity, ScreenInfo screenInfo) {
-        this.activity = activity;
+    public XServer(ScreenInfo screenInfo) {
+        this(XServerHost.NO_OP, screenInfo);
+    }
+
+    public XServer(XServerHost host, ScreenInfo screenInfo) {
+        this.host = host != null ? host : XServerHost.NO_OP;
         this.screenInfo = screenInfo;
         cursorLocker = new CursorLocker(this);
         for (Lockable lockable : Lockable.values()) locks.put(lockable, new ReentrantLock());
@@ -77,14 +84,67 @@ public class XServer {
 
     public void setRenderer(GLRenderer renderer) {
         this.renderer = renderer;
+        if (renderer != null) {
+            final List<Texture> pending;
+            synchronized (deferredTextureDestroys) {
+                pending = new ArrayList<>(deferredTextureDestroys);
+                deferredTextureDestroys.clear();
+            }
+            if (!pending.isEmpty()) {
+                renderer.xServerView.queueEvent(() -> {
+                    for (Texture texture : pending) texture.destroy();
+                });
+            }
+        }
     }
 
-    public WinHandler getWinHandler() {
-        return winHandler;
+    /**
+     * Destroys a renderer-owned texture on the GL thread when a surface is
+     * attached. Guest X clients are allowed to run while the Activity is not
+     * attached, so retain allocated textures until a renderer returns instead
+     * of dereferencing an Activity-owned view from the X thread.
+     */
+    public void destroyTexture(Texture texture) {
+        if (texture == null) return;
+        GLRenderer currentRenderer = renderer;
+        if (currentRenderer != null && currentRenderer.xServerView != null) {
+            currentRenderer.xServerView.queueEvent(texture::destroy);
+        }
+        else if (texture.isAllocated()) {
+            synchronized (deferredTextureDestroys) {
+                if (!deferredTextureDestroys.contains(texture)) deferredTextureDestroys.add(texture);
+            }
+        }
+        else {
+            texture.destroy();
+        }
     }
 
-    public void setWinHandler(WinHandler winHandler) {
-        this.winHandler = winHandler;
+    public void detachRenderer(GLRenderer renderer) {
+        if (this.renderer == renderer) {
+            if (renderer != null) renderer.release();
+            this.renderer = null;
+        }
+    }
+
+    public XServerHost getHost() {
+        return host;
+    }
+
+    public String getNativeLibraryDir() {
+        return host.nativeLibraryDir();
+    }
+
+    public void sendRelativeMouseEvent(int flags, int dx, int dy, int wheelDelta) {
+        host.relativeMouseEvent(flags, dx, dy, wheelDelta);
+    }
+
+    public void sendGamepadState(ControlsProfile profile) {
+        host.sendGamepadState(profile);
+    }
+
+    public void sendMidiShortMessage(byte status, byte data1, byte data2, byte data3) {
+        host.midiShortMessage(status, data1, data2, data3);
     }
 
     public SHMSegmentManager getSHMSegmentManager() {
@@ -142,6 +202,10 @@ public class XServer {
         return null;
     }
 
+    public Extension[] getExtensions() {
+        return extensions.clone();
+    }
+
     public void injectPointerMove(int x, int y) {
         try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
             pointer.setPosition(x, y);
@@ -191,7 +255,9 @@ public class XServer {
             new PresentExtension(this, opcode--),
             new SyncExtension(this, opcode--),
             new XComposite(this, opcode--),
-            new GLXExtension(this, opcode--)
+            new GLXExtension(this, opcode--),
+            new XFixesExtension(this, opcode--),
+            new RandRExtension(this, opcode--)
         };
     }
 
@@ -201,7 +267,6 @@ public class XServer {
     }
 
     public void debugPrint(String line) {
-        DebugDialog debugDialog = activity.getDebugDialog();
-        if (debugDialog != null) debugDialog.call("xserver:"+line);
+        host.debugPrint("xserver:"+line);
     }
 }

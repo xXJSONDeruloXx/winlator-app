@@ -3,7 +3,6 @@ package com.winlator.xserver;
 import com.winlator.core.Bitmask;
 import com.winlator.renderer.FullscreenTransformation;
 import com.winlator.winhandler.MouseEventFlags;
-import com.winlator.winhandler.WinHandler;
 import com.winlator.xserver.events.ButtonPress;
 import com.winlator.xserver.events.ButtonRelease;
 import com.winlator.xserver.events.EnterNotify;
@@ -145,9 +144,8 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
     @Override
     public void onPointerButtonPress(Pointer.Button button) {
         if (xServer.isRelativeMouseMovement()) {
-            WinHandler winHandler = xServer.getWinHandler();
             int wheelDelta = button == Pointer.Button.BUTTON_SCROLL_UP ? MOUSE_WHEEL_DELTA : (button == Pointer.Button.BUTTON_SCROLL_DOWN ? -MOUSE_WHEEL_DELTA : 0);
-            winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, true), 0, 0, wheelDelta);
+            xServer.sendRelativeMouseEvent(MouseEventFlags.getFlagFor(button, true), 0, 0, wheelDelta);
         }
         else {
             Window grabWindow = xServer.grabManager.getWindow();
@@ -180,8 +178,7 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
     @Override
     public void onPointerButtonRelease(Pointer.Button button) {
         if (xServer.isRelativeMouseMovement()) {
-            WinHandler winHandler = xServer.getWinHandler();
-            winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, false), 0, 0, 0);
+            xServer.sendRelativeMouseEvent(MouseEventFlags.getFlagFor(button, false), 0, 0, 0);
         }
         else {
             Bitmask eventMask = createPointerEventMask();

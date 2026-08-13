@@ -2,8 +2,6 @@ package com.winlator.xserver;
 
 import androidx.collection.ArrayMap;
 
-import com.winlator.winhandler.WinHandler;
-
 import java.util.ArrayList;
 import java.util.Map;
 
@@ -40,7 +38,6 @@ public abstract class DesktopHelper {
     }
 
     private static void setFocusedWindow(XServer xServer, Window window) {
-        WinHandler winHandler = xServer.getWinHandler();
         if (window.isApplicationWindow()) {
             boolean parentIsRoot = window.getParent() == xServer.windowManager.rootWindow;
             xServer.windowManager.setFocus(window, parentIsRoot ? WindowManager.FocusRevertTo.POINTER_ROOT : WindowManager.FocusRevertTo.PARENT);
@@ -48,13 +45,13 @@ public abstract class DesktopHelper {
             if (window.isSurface()) {
                 ArrayList<Window> dialogWindows = xServer.windowManager.findDialogWindows(window.id);
                 if (!dialogWindows.isEmpty()) {
-                    for (Window dialogWindow : dialogWindows) winHandler.bringToFront(dialogWindow.getClassName(), dialogWindow.getHandle());
+                    for (Window dialogWindow : dialogWindows) xServer.getHost().bringToFront(dialogWindow.getClassName(), dialogWindow.getHandle());
                 }
-                else winHandler.bringToFront(window.getClassName(), window.getHandle());
+                else xServer.getHost().bringToFront(window.getClassName(), window.getHandle());
             }
         }
         else if (window.isDialogBox()) {
-            winHandler.bringToFront(window.getClassName(), window.getHandle());
+            xServer.getHost().bringToFront(window.getClassName(), window.getHandle());
         }
     }
 

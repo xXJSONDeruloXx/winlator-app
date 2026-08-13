@@ -79,6 +79,12 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
         xServer.pointer.addOnPointerMotionListener(this);
     }
 
+    /** Detaches this Activity-owned renderer while leaving XServer state alive. */
+    public void release() {
+        xServer.windowManager.removeOnWindowModificationListener(this);
+        xServer.pointer.removeOnPointerMotionListener(this);
+    }
+
     @Override
     public void onSurfaceCreated(GL10 gl, EGLConfig config) {
         GPUHelper.setGlobalEGLContext();

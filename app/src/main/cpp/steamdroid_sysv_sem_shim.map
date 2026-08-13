@@ -1,0 +1,8 @@
+GLIBC_2.17 {
+    global:
+        semctl;
+        semget;
+        semop;
+    local:
+        *;
+};

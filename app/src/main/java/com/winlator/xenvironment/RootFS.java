@@ -23,6 +23,11 @@ public class RootFS {
         this.rootDir = rootDir;
     }
 
+    /** Creates a runtime-only filesystem view without touching Winlator's Wine rootfs. */
+    public static RootFS forDirectory(File rootDir) {
+        return new RootFS(rootDir);
+    }
+
     public static RootFS find(Context context) {
         File legacyDir = new File(context.getFilesDir(), "imagefs");
         File rootDir = new File(context.getFilesDir(), "rootfs");

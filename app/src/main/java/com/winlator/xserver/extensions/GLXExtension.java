@@ -1,8 +1,8 @@
 package com.winlator.xserver.extensions;
 
-import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_ERROR;
 import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_SUCCESS;
 
+import android.util.Log;
 import android.util.SparseArray;
 import android.util.SparseLongArray;
 
@@ -28,6 +28,7 @@ import java.io.IOException;
 public class GLXExtension extends Extension {
     public static final byte MAJOR_VERSION = 1;
     public static final byte MINOR_VERSION = 4;
+    private static final String TAG = "SteamDroid.XServer.GLX";
     private static final byte DEFAULT_FBCONFIG_ID = 1;
     private final SparseArray<SparseLongArray> clientGLXContexts = new SparseArray<>();
     private final SparseArray<SparseLongArray> clientGLContexts = new SparseArray<>();
@@ -48,12 +49,19 @@ public class GLXExtension extends Extension {
     private static abstract class ClientOpcodes {
         private static final byte CREATE_GL_CONTEXT = 1;
         private static final byte DESTROY_GL_CONTEXT = 2;
+        private static final byte MAKE_CURRENT = 5;
+        private static final byte IS_DIRECT = 6;
         private static final byte CREATE_CONTEXT = 3;
         private static final byte DESTROY_CONTEXT = 4;
         private static final byte QUERY_VERSION = 7;
+        private static final byte GET_VISUAL_CONFIGS = 14;
         private static final byte QUERY_EXTENSIONS_STRING = 18;
         private static final byte QUERY_SERVER_STRING = 19;
+        private static final byte CLIENT_INFO = 20;
+        private static final byte SET_CLIENT_INFO_ARB = 33;
+        private static final byte SET_CLIENT_INFO2_ARB = 35;
         private static final byte GET_FB_CONFIGS = 21;
+        private static final byte GET_DRAWABLE_ATTRIBUTES = 29;
         private static final byte CREATE_CONTEXT_ATTRIBS_ARB = 34;
     }
 
@@ -117,16 +125,41 @@ public class GLXExtension extends Extension {
         int contextId = inputStream.readInt();
         inputStream.skip(8);
         int shareList = inputStream.readInt();
-        boolean isDirect = inputStream.readByte() == 1;
+        inputStream.readByte();
 
         if (contextId == 0) throw new GLXBadContext();
         createGLXContextForClient(client, contextId, shareList);
+        // GLXCreateContext is a void request. Consume its three bytes of
+        // protocol padding and do not fabricate a reply: libGLX would treat
+        // such a reply as the response to a later request and lose framing.
+        inputStream.skip(3);
+    }
 
+    private void makeCurrent(XClient client, XInputStream inputStream, XOutputStream outputStream)
+        throws IOException, XRequestError {
+        int drawableId = inputStream.readInt();
+        int contextId = inputStream.readInt();
+        int oldContextTag = inputStream.readInt();
+        if (contextId != 0) {
+            SparseLongArray contexts = clientGLXContexts.get(client.fd);
+            if (contexts == null || contexts.get(contextId, 0L) == 0L) {
+                throw new GLXBadContext();
+            }
+        }
+
+        // The renderer ring uses the GLX context id as its context tag; the
+        // drawable is supplied in the subsequent set-current ring command.
+        int contextTag = contextId;
+        Log.d(TAG, "MakeCurrent sequence=" + (client.getSequenceNumber() & 0xffff) +
+            " drawable=" + drawableId + " context=" + contextId +
+            " old_tag=" + oldContextTag + " tag=" + contextTag);
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0);
             outputStream.writeShort(client.getSequenceNumber());
-            outputStream.writePad(28);
+            outputStream.writeInt(0);
+            outputStream.writeInt(contextTag);
+            outputStream.writePad(20);
         }
     }
 
@@ -156,6 +189,47 @@ public class GLXExtension extends Extension {
             outputStream.writeInt(MAJOR_VERSION);
             outputStream.writeInt(MINOR_VERSION);
             outputStream.writePad(16);
+        }
+    }
+
+    private void isDirect(XClient client, XInputStream inputStream, XOutputStream outputStream)
+        throws IOException {
+        inputStream.readInt();
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(0);
+            outputStream.writeByte((byte)1);
+            outputStream.writePad(23);
+        }
+    }
+
+    private void getVisualConfigs(XClient client, XInputStream inputStream, XOutputStream outputStream)
+        throws IOException {
+        inputStream.readInt();
+        Log.d(TAG, "GetVisualConfigs sequence=" + (client.getSequenceNumber() & 0xffff));
+        // GLX 1.2's legacy visual query is still used by loaders before they
+        // ask for the newer FBConfig path. These first 18 values are the
+        // legacy __GLXvisualConfig fields, not tagged GLX attributes: visual
+        // ID, X visual class, RGBA, channel sizes, accumulation sizes,
+        // buffering, rgb/depth/stencil sizes, aux buffers, and level.
+        int[] properties = new int[]{
+            xServer.pixmapManager.visual.id, 4, 1,
+            8, 8, 8, 8,
+            0, 0, 0, 0,
+            1, 0,
+            32, 24, 8, 0, 0
+        };
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(properties.length);
+            outputStream.writeInt(1);
+            outputStream.writeInt(properties.length);
+            outputStream.writePad(16);
+            for (int property : properties) outputStream.writeInt(property);
         }
     }
 
@@ -208,21 +282,48 @@ public class GLXExtension extends Extension {
 
     private void getFBConfigs(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         inputStream.skip(4);
+        Log.d(TAG, "GetFBConfigs sequence=" + (client.getSequenceNumber() & 0xffff) +
+            " visual=" + xServer.pixmapManager.visual.id);
 
         final int numFBConfigs = 1;
-        final int numProperties = 11;
+        // Keep this list explicit and complete enough for Mesa's
+        // glXChooseFBConfig path.  An omitted attribute is interpreted as
+        // zero by the client, so the previous minimal record was rejected
+        // when Steam asked for an X-renderable TrueColor RGBA window.
+        final int numProperties = 32;
         final int[] properties = new int[]{
             GLXEnums.GLX_FBCONFIG_ID, DEFAULT_FBCONFIG_ID,
+            GLXEnums.GLX_X_RENDERABLE, 1,
+            GLXEnums.GLX_VISUAL_ID, xServer.pixmapManager.visual.id,
+            GLXEnums.GLX_SCREEN, 0,
+            GLXEnums.GLX_CONFIG_CAVEAT, GLXEnums.GLX_NONE,
+            GLXEnums.GLX_X_VISUAL_TYPE, GLXEnums.GLX_TRUE_COLOR,
+            GLXEnums.GLX_TRANSPARENT_TYPE, GLXEnums.GLX_NONE,
+            GLXEnums.GLX_TRANSPARENT_INDEX_VALUE, 0,
+            GLXEnums.GLX_TRANSPARENT_RED_VALUE, 0,
+            GLXEnums.GLX_TRANSPARENT_GREEN_VALUE, 0,
+            GLXEnums.GLX_TRANSPARENT_BLUE_VALUE, 0,
+            GLXEnums.GLX_TRANSPARENT_ALPHA_VALUE, 0,
+            GLXEnums.GLX_DRAWABLE_TYPE, GLXEnums.GLX_WINDOW_BIT,
+            GLXEnums.GLX_RENDER_TYPE, GLXEnums.GLX_RGBA_BIT,
             GLXEnums.GLX_RED_SIZE, 8,
             GLXEnums.GLX_GREEN_SIZE, 8,
             GLXEnums.GLX_BLUE_SIZE, 8,
             GLXEnums.GLX_ALPHA_SIZE, 8,
+            GLXEnums.GLX_BUFFER_SIZE, 32,
+            GLXEnums.GLX_LEVEL, 0,
+            GLXEnums.GLX_RGBA, 1,
+            GLXEnums.GLX_DOUBLEBUFFER, 1,
+            GLXEnums.GLX_STEREO, 0,
+            GLXEnums.GLX_AUX_BUFFERS, 0,
             GLXEnums.GLX_DEPTH_SIZE, 24,
             GLXEnums.GLX_STENCIL_SIZE, 8,
-            GLXEnums.GLX_BUFFER_SIZE, 32,
-            GLXEnums.GLX_DOUBLEBUFFER, 1,
-            GLXEnums.GLX_DRAWABLE_TYPE, GLXEnums.GLX_WINDOW_BIT,
-            GLXEnums.GLX_RENDER_TYPE, GLXEnums.GLX_RGBA_BIT
+            GLXEnums.GLX_ACCUM_RED_SIZE, 0,
+            GLXEnums.GLX_ACCUM_GREEN_SIZE, 0,
+            GLXEnums.GLX_ACCUM_BLUE_SIZE, 0,
+            GLXEnums.GLX_ACCUM_ALPHA_SIZE, 0,
+            GLXEnums.GLX_SAMPLE_BUFFERS, 0,
+            GLXEnums.GLX_SAMPLES, 0
         };
 
         try (XStreamLock lock = outputStream.lock()) {
@@ -240,6 +341,27 @@ public class GLXExtension extends Extension {
                     outputStream.writeInt(properties[k*2+1]);
                 }
             }
+        }
+    }
+
+    private void getDrawableAttributes(XClient client, XInputStream inputStream, XOutputStream outputStream)
+        throws IOException, XRequestError {
+        int drawableId = inputStream.readInt();
+        Drawable drawable = xServer.drawableManager.getDrawable(drawableId);
+        if (drawable == null) throw new GLXBadFBConfig();
+
+        // Winlator's embedded renderer has no GLX drawable attributes beyond
+        // the X window itself. Return a valid zero-attribute reply rather
+        // than the BadImplementation error that makes Steam's updater abort.
+        Log.d(TAG, "GetDrawableAttributes sequence=" + (client.getSequenceNumber() & 0xffff) +
+            " drawable=" + drawableId);
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(0);
+            outputStream.writeInt(0);
+            outputStream.writePad(20);
         }
     }
 
@@ -265,14 +387,13 @@ public class GLXExtension extends Extension {
         }
 
         boolean success = glMajorVersion <= 3 && glMinorVersion <= 3;
-        if (success) createGLXContextForClient(client, contextId, shareContext);
-
-        try (XStreamLock lock = outputStream.lock()) {
-            outputStream.writeByte(success ? RESPONSE_CODE_SUCCESS : RESPONSE_CODE_ERROR);
-            outputStream.writeByte((byte)0);
-            outputStream.writeShort(client.getSequenceNumber());
-            outputStream.writePad(28);
-        }
+        Log.d(TAG, "CreateContextAttribsARB sequence=" + (client.getSequenceNumber() & 0xffff) +
+            " fbconfig=" + fbConfigId + " version=" + glMajorVersion + "." + glMinorVersion +
+            " success=" + success);
+        if (!success) throw new BadImplementation();
+        // GLXCreateContextAttribsARB is also a void request. Errors are
+        // represented by the normal X error path; success has no reply.
+        createGLXContextForClient(client, contextId, shareContext);
     }
 
     @Override
@@ -291,6 +412,20 @@ public class GLXExtension extends Extension {
             case ClientOpcodes.DESTROY_CONTEXT:
                 destroyContext(client, inputStream, outputStream);
                 break;
+            case ClientOpcodes.MAKE_CURRENT:
+                makeCurrent(client, inputStream, outputStream);
+                break;
+            case ClientOpcodes.IS_DIRECT:
+                isDirect(client, inputStream, outputStream);
+                break;
+            case ClientOpcodes.GET_VISUAL_CONFIGS:
+                getVisualConfigs(client, inputStream, outputStream);
+                break;
+            case ClientOpcodes.CLIENT_INFO:
+            case ClientOpcodes.SET_CLIENT_INFO_ARB:
+            case ClientOpcodes.SET_CLIENT_INFO2_ARB:
+                client.skipRequest();
+                break;
             case ClientOpcodes.QUERY_VERSION:
                 queryVersion(client, inputStream, outputStream);
                 break;
@@ -302,6 +437,9 @@ public class GLXExtension extends Extension {
                 break;
             case ClientOpcodes.GET_FB_CONFIGS:
                 getFBConfigs(client, inputStream, outputStream);
+                break;
+            case ClientOpcodes.GET_DRAWABLE_ATTRIBUTES:
+                getDrawableAttributes(client, inputStream, outputStream);
                 break;
             case ClientOpcodes.CREATE_CONTEXT_ATTRIBS_ARB:
                 createContextAttribsARB(client, inputStream, outputStream);

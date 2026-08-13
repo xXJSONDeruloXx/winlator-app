@@ -75,7 +75,7 @@ public class VortekRendererComponent extends EnvironmentComponent implements Con
         this.socketConfig = socketConfig;
         this.options = options;
 
-        String nativeLibraryDir = xServer.activity.getApplicationInfo().nativeLibraryDir;
+        String nativeLibraryDir = xServer.getNativeLibraryDir();
         initVulkanWrapper(nativeLibraryDir, options.libvulkanPath);
     }
 
@@ -116,7 +116,7 @@ public class VortekRendererComponent extends EnvironmentComponent implements Con
             final Texture texture = drawable.getTexture();
 
             if (!(texture instanceof GPUImage)) {
-                xServer.getRenderer().xServerView.queueEvent(texture::destroy);
+                xServer.destroyTexture(texture);
                 drawable.setTexture(new GPUImage(drawable, false, useHALPixelFormatBGRA8888));
             }
 

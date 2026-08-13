@@ -450,7 +450,6 @@ public class InputControlsView extends View {
 
     public void handleInputEvent(Binding binding, boolean isActionDown, float offset) {
         if (binding.isGamepad()) {
-            WinHandler winHandler = xServer != null ? xServer.getWinHandler() : null;
             GamepadState state = profile.getGamepadState();
 
             int buttonIdx = binding.ordinal() - Binding.GAMEPAD_BUTTON_A.ordinal();
@@ -474,7 +473,7 @@ public class InputControlsView extends View {
                 state.dpad[binding.ordinal() - Binding.GAMEPAD_DPAD_UP.ordinal()] = isActionDown;
             }
 
-            if (winHandler != null) winHandler.gamepadHandler.sendGamepadState(profile);
+            if (xServer != null) xServer.sendGamepadState(profile);
         }
         else {
             if (binding == Binding.MOUSE_MOVE_LEFT || binding == Binding.MOUSE_MOVE_RIGHT) {

@@ -8,3 +8,4 @@
 /build
 /captures
 .externalNativeBuild
+app/src/main/jniLibs/arm64-v8a/libsteamdroid_supervisor.so
