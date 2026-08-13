@@ -173,13 +173,11 @@ public class SteamSessionService extends Service {
             byte[] payload = SteamNativeExecRequest.encode(Arrays.asList(
                 "/usr/bin/dbus-run-session", "--", steamExecutable,
                 "-gamepadui", "-steamos3", "-steampal", "-steamdeck",
-                "-no-cef-sandbox", "-cef-disable-gpu",
-                // The provisioner has already installed the complete ARM64
-                // client payload.  Avoid the bootstrapper's child updater
-                // path here; it is not the SteamUI process and, on this
-                // client build, exits before the native client handoff.
-                "-nobootstrapperupdate", "-skipinitialbootstrap",
-                "-no-child-update-ui"));
+                "-no-cef-sandbox"
+                // Allow the native client to perform its normal bootstrapper
+                // handoff and persistent update checks before entering the
+                // SteamUI/gamepad client.
+                ));
             SteamControlClient.Response response = controlClient.request(
                 SteamControlProtocol.EXEC_NATIVE_STEAM, payload);
             if (!response.isSuccess()) throw new IOException("native Steam launch status=" + response.status);

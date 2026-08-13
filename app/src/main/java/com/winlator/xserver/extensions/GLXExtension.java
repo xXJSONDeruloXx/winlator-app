@@ -225,7 +225,6 @@ public class GLXExtension extends Extension {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0);
             outputStream.writeShort(client.getSequenceNumber());
-            outputStream.writeInt(properties.length);
             outputStream.writeInt(1);
             outputStream.writeInt(properties.length);
             outputStream.writePad(16);
