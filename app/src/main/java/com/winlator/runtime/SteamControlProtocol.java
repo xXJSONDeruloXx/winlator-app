@@ -18,6 +18,7 @@ public final class SteamControlProtocol {
     public static final short EXEC_RUNTIME_BWRAP = 7;
     public static final short EXEC_NATIVE_STEAM = 8;
     public static final short INSTALL_HOLO_PACKAGES = 9;
+    public static final short RUNTIME_BWRAP_STATUS = 10;
 
     private SteamControlProtocol() {}
 }

@@ -7,7 +7,7 @@ ARM64 Steam Runtime, Proton, FEX, and game processes.
 
 ## Current milestone boundary
 
-M0–M3 are implemented:
+M0–M4 are implemented:
 
 - the application installs as `com.xjsonderulo.steamdroid` beside the legacy
   Winlator sources;
@@ -20,8 +20,8 @@ M0–M3 are implemented:
 - Holo identity views use the live Android UID, primary GID, and supplementary
   groups while retaining the logical `steam` account name;
 - the Android control socket is an app-private filesystem socket and is never
-  exposed in the Holo chroot; the guest proxy is a separate pathname endpoint
-  reserved for the Runtime-4 proxy milestone;
+  exposed in the Holo chroot; the guest proxy is a separate app-private socket
+  bind-mounted at Holo-visible `/tmp/steamdroid-runtime-bwrap.sock`;
 - Steam client seeding is ARM64-only and versioned by the channel descriptor.
 
 M4 is qualified through native client startup on the attached AYN Thor:
@@ -36,9 +36,12 @@ M4 is qualified through native client startup on the attached AYN Thor:
 
 The current public-beta client still exits with its known
 `Bootstrapper HTTP Client` frame-function assertion before SteamUI/webhelper.
-That is an open M4 client/runtime compatibility boundary, not acceptance of
-Big Picture. Runtime 4 proxying, Steam-managed ARM64 Runtime/Proton
-installation, input/uinput, login, and game launch remain later milestones.
+That is an open native-client compatibility boundary, not acceptance of Big
+Picture. The M7 root proxy now preserves the complete inherited-FD table and
+Bubblewrap `--args FD` stream, performs the identity transition after the
+command boundary, and passes a service-owned root-owned fixture bwrap on Thor.
+The fixture does not yet qualify the live Steam-installed srt-bwrap,
+Runtime 4, Proton, input/uinput, login, or game launch.
 
 ## Build and device smoke test
 
@@ -61,8 +64,12 @@ adb -s d234a848 shell su -c \
 adb -s d234a848 shell su -c \
   'am start-foreground-service -n com.xjsonderulo.steamdroid/com.winlator.SteamSessionService \
    -a com.xjsonderulo.steamdroid.action.STOP'
+adb -s d234a848 shell su -c \
+  'am start-foreground-service -n com.xjsonderulo.steamdroid/com.winlator.SteamSessionService \
+   -a com.xjsonderulo.steamdroid.action.RUNTIME_BWRAP_SELF_TEST'
 ```
 
-The Runtime-4 operation remains fail-closed until the proxy preserves
-Bubblewrap argv/FD topology, including `--args FD`, for the validated
-Steam-installed version.
+The real Runtime-4 operation remains acceptance-gated until an authentic
+Steam-installed srt-bwrap invocation and a real Proton launch pass through the
+same proxy. Malformed requests, unknown channels, missing descriptors, and
+unvalidated tool versions remain fail-closed.

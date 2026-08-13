@@ -28,6 +28,8 @@ import com.winlator.xserver.ScreenInfo;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -43,6 +45,8 @@ public class SteamSessionService extends Service {
     public static final String ACTION_INSTALL_HOLO_PACKAGES = "com.xjsonderulo.steamdroid.action.INSTALL_HOLO_PACKAGES";
     public static final String ACTION_INSTALL_STEAM = "com.xjsonderulo.steamdroid.action.INSTALL_STEAM";
     public static final String ACTION_LAUNCH_STEAM = "com.xjsonderulo.steamdroid.action.LAUNCH_STEAM";
+    public static final String ACTION_RUNTIME_BWRAP_SELF_TEST =
+        "com.xjsonderulo.steamdroid.action.RUNTIME_BWRAP_SELF_TEST";
     private static final String NOTIFICATION_CHANNEL = "steamdroid-session";
     private static final int NOTIFICATION_ID = 1101;
 
@@ -64,6 +68,11 @@ public class SteamSessionService extends Service {
         File sessionDirectory = new File(getFilesDir(), "session");
         sessionDirectory.mkdirs();
         controlSocket = new File(sessionDirectory, "control.sock");
+        // The guest endpoint is created in the app-private session directory
+        // before namespace creation and bind-mounted into Holo as
+        // /tmp/steamdroid-runtime-bwrap.sock. The Android control socket
+        // remains outside that mount, so the two capabilities cannot be
+        // addressed interchangeably.
         guestProxySocket = new File(sessionDirectory, "guest-proxy.sock");
         nativeSubstrate = new SteamNativeSubstrate(this);
     }
@@ -85,6 +94,9 @@ public class SteamSessionService extends Service {
         }
         else if (ACTION_LAUNCH_STEAM.equals(action)) {
             executor.execute(this::launchSteam);
+        }
+        else if (ACTION_RUNTIME_BWRAP_SELF_TEST.equals(action)) {
+            executor.execute(this::runtimeBwrapSelfTest);
         }
         else {
             executor.execute(this::prepareSession);
@@ -178,6 +190,54 @@ public class SteamSessionService extends Service {
             lastStatus = "native Steam launch error: " + e.getMessage();
             Log.e(TAG, lastStatus, e);
         }
+    }
+
+    /** Runs only the local FD/--args proxy fixture; it never launches Steam. */
+    private void runtimeBwrapSelfTest() {
+        try {
+            ensureSessionPrepared();
+            File proxy = new File(getFilesDir(),
+                "steamdroid/holo-rootfs/usr/bin/steamdroid-bwrap-proxy");
+            if (!proxy.isFile() || !proxy.canExecute()) throw new IOException("guest proxy is not staged");
+            // Use a pipe as the fixture descriptor. Pressure Vessel may pass
+            // a pipe or memfd through --args, not only a regular file.
+            String command = "exec " + shellQuote(proxy.getPath()) + " --args 0";
+            ProcessBuilder builder = new ProcessBuilder("/system/bin/sh", "-c", command)
+                .redirectErrorStream(true);
+            builder.environment().put("STEAMDROID_BWRAP_SOCKET", guestProxySocket.getPath());
+            builder.environment().put("STEAMDROID_REAL_BWRAP", "/usr/bin/steamdroid-bwrap-fixture");
+            Process process = builder.start();
+            try (OutputStream input = process.getOutputStream()) {
+                input.write(new byte[]{'-', '-', 0, '/', 'b', 'i', 'n', '/', 't', 'r', 'u', 'e', 0});
+            }
+            StringBuilder output = new StringBuilder();
+            if (!process.waitFor(15, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new IOException("guest proxy self-test timed out");
+            }
+            try (InputStream input = process.getInputStream()) {
+                byte[] buffer = new byte[1024];
+                while (input.available() > 0 && output.length() < 8192) {
+                    int length = input.read(buffer);
+                    if (length <= 0) break;
+                    output.append(new String(buffer, 0, length));
+                }
+            }
+            if (process.exitValue() != 0) {
+                throw new IOException("guest proxy self-test status=" + process.exitValue() +
+                    " output=" + output);
+            }
+            lastStatus = "Runtime-4 proxy FD/--args self-test passed";
+            Log.i(TAG, lastStatus);
+        }
+        catch (Exception e) {
+            lastStatus = "Runtime-4 proxy self-test error: " + e.getMessage();
+            Log.e(TAG, lastStatus, e);
+        }
+    }
+
+    private static String shellQuote(String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     private void ensureSessionPrepared() throws IOException {
