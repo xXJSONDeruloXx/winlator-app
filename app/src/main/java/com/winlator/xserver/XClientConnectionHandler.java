@@ -26,6 +26,8 @@ public class XClientConnectionHandler implements ConnectionHandler {
     @Override
     public void handleConnectionShutdown(ConnectedClient client) {
         Log.d(TAG, "X client disconnected fd=" + client.fd);
-        ((XClient)client).freeResources();
+        XClient xClient = (XClient)client;
+        xServer.releaseServerGrab(xClient);
+        xClient.freeResources();
     }
 }

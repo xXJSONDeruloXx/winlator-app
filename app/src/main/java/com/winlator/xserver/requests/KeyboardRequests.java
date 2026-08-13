@@ -34,6 +34,28 @@ public abstract class KeyboardRequests {
         }
     }
 
+    public static void queryKeymap(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException {
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(8);
+            outputStream.writePad(24);
+
+            for (int base = 0; base < 256; base += 8) {
+                int keyBits = 0;
+                for (int bit = 0; bit < 8; bit++) {
+                    int keycode = base + bit;
+                    if (keycode >= Keyboard.MIN_KEYCODE && keycode <= Keyboard.MAX_KEYCODE &&
+                        client.xServer.keyboard.isKeyPressed((byte)keycode)) {
+                        keyBits |= 1 << bit;
+                    }
+                }
+                outputStream.writeByte((byte)keyBits);
+            }
+        }
+    }
+
     public static void getModifierMapping(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);

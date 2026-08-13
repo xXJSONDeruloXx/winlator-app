@@ -4,6 +4,7 @@ import android.util.SparseBooleanArray;
 
 import com.winlator.xconnector.XInputStream;
 import com.winlator.xconnector.XOutputStream;
+import com.winlator.xconnector.XStreamLock;
 import com.winlator.xserver.XClient;
 import com.winlator.xserver.XServer;
 import com.winlator.xserver.errors.BadFence;
@@ -15,9 +16,12 @@ import com.winlator.xserver.errors.XRequestError;
 import java.io.IOException;
 
 public class SyncExtension extends Extension {
+    public static final int MAJOR_VERSION = 3;
+    public static final int MINOR_VERSION = 1;
     private final SparseBooleanArray fences = new SparseBooleanArray();
 
     private static abstract class ClientOpcodes {
+        private static final byte INITIALIZE = 0;
         private static final byte CREATE_FENCE = 14;
         private static final byte TRIGGER_FENCE = 15;
         private static final byte RESET_FENCE = 16;
@@ -37,6 +41,28 @@ public class SyncExtension extends Extension {
     public void setTriggered(int id) {
         synchronized (fences) {
             if (fences.indexOfKey(id) >= 0) fences.put(id, true);
+        }
+    }
+
+    private void initialize(XClient client, XInputStream inputStream, XOutputStream outputStream)
+        throws IOException {
+        int requestedMajor = inputStream.readByte() & 0xff;
+        int requestedMinor = inputStream.readByte() & 0xff;
+        inputStream.skip(2);
+
+        int major = Math.min(requestedMajor, MAJOR_VERSION);
+        int minor = requestedMajor == MAJOR_VERSION
+            ? Math.min(requestedMinor, MINOR_VERSION)
+            : requestedMajor < MAJOR_VERSION ? requestedMinor : MINOR_VERSION;
+
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte((byte)1);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(0);
+            outputStream.writeByte((byte)major);
+            outputStream.writeByte((byte)minor);
+            outputStream.writePad(22);
         }
     }
 
@@ -111,6 +137,9 @@ public class SyncExtension extends Extension {
     public void handleRequest(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         int opcode = client.getRequestData();
         switch (opcode) {
+            case ClientOpcodes.INITIALIZE:
+                initialize(client, inputStream, outputStream);
+                break;
             case ClientOpcodes.CREATE_FENCE :
                 createFence(client, inputStream, outputStream);
                 break;

@@ -24,7 +24,10 @@ public abstract class ClientOpcodes {
     public static final byte SEND_EVENT = 25;
     public static final byte GRAB_POINTER = 26;
     public static final byte UNGRAB_POINTER = 27;
+    public static final byte GRAB_SERVER = 36;
+    public static final byte UNGRAB_SERVER = 37;
     public static final byte QUERY_POINTER = 38;
+    public static final byte QUERY_KEYMAP = 44;
     public static final byte TRANSLATE_COORDINATES = 40;
     public static final byte WARP_POINTER = 41;
     public static final byte SET_INPUT_FOCUS = 42;
@@ -50,6 +53,7 @@ public abstract class ClientOpcodes {
     public static final byte POLY_TEXT16 = 75;
     public static final byte CREATE_COLORMAP = 78;
     public static final byte FREE_COLORMAP = 79;
+    public static final byte ALLOC_NAMED_COLOR = 85;
     public static final byte CREATE_CURSOR = 93;
     public static final byte CREATE_GLYPH_CURSOR = 94;
     public static final byte FREE_CURSOR = 95;

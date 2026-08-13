@@ -11,6 +11,7 @@ import com.winlator.xserver.errors.XRequestError;
 import com.winlator.xserver.extensions.Extension;
 import com.winlator.xserver.requests.AtomRequests;
 import com.winlator.xserver.requests.CursorRequests;
+import com.winlator.xserver.requests.ColorRequests;
 import com.winlator.xserver.requests.DrawRequests;
 import com.winlator.xserver.requests.ExtensionRequests;
 import com.winlator.xserver.requests.FontRequests;
@@ -38,6 +39,7 @@ public class XClientRequestHandler implements RequestHandler {
         XOutputStream outputStream = client.getOutputStream();
 
         if (xClient.isAuthenticated()) {
+            if (xClient.xServer.isServerGrabbedByOther(xClient)) return false;
             return handleNormalRequest(xClient, inputStream, outputStream);
         }
         else return handleAuthRequest(xClient, inputStream, outputStream);
@@ -288,9 +290,22 @@ public class XClientRequestHandler implements RequestHandler {
                             GrabRequests.ungrabPointer(client, inputStream, outputStream);
                         }
                         break;
+                    case ClientOpcodes.GRAB_SERVER:
+                        client.xServer.grabServer(client);
+                        client.skipRequest();
+                        break;
+                    case ClientOpcodes.UNGRAB_SERVER:
+                        client.xServer.ungrabServer(client);
+                        client.skipRequest();
+                        break;
                     case ClientOpcodes.QUERY_POINTER:
                         try (XLock lock = client.xServer.lock(XServer.Lockable.WINDOW_MANAGER, XServer.Lockable.INPUT_DEVICE)) {
                             WindowRequests.queryPointer(client, inputStream, outputStream);
+                        }
+                        break;
+                    case ClientOpcodes.QUERY_KEYMAP:
+                        try (XLock lock = client.xServer.lock(XServer.Lockable.INPUT_DEVICE)) {
+                            KeyboardRequests.queryKeymap(client, inputStream, outputStream);
                         }
                         break;
                     case ClientOpcodes.TRANSLATE_COORDINATES:
@@ -398,6 +413,9 @@ public class XClientRequestHandler implements RequestHandler {
                         break;
                     case ClientOpcodes.FREE_COLORMAP:
                         client.skipRequest();
+                        break;
+                    case ClientOpcodes.ALLOC_NAMED_COLOR:
+                        ColorRequests.allocNamedColor(client, inputStream, outputStream);
                         break;
                     case ClientOpcodes.CREATE_CURSOR:
                         try (XLock lock = client.xServer.lock(XServer.Lockable.PIXMAP_MANAGER, XServer.Lockable.DRAWABLE_MANAGER, XServer.Lockable.CURSOR_MANAGER)) {

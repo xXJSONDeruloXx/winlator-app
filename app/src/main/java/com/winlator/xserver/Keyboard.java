@@ -75,6 +75,10 @@ public class Keyboard {
         }
     }
 
+    public boolean isKeyPressed(byte keycode) {
+        return pressedKeys.contains(keycode);
+    }
+
     public void addOnKeyboardListener(OnKeyboardListener onKeyboardListener) {
         onKeyboardListeners.add(onKeyboardListener);
     }

@@ -55,6 +55,7 @@ public final class XFixesExtension extends Extension {
     private static final int TRANSLATE_REGION = 17;
     private static final int REGION_EXTENTS = 18;
     private static final int FETCH_REGION = 19;
+    private static final int SET_CURSOR_NAME = 23;
     private static final int HIDE_CURSOR = 29;
     private static final int SHOW_CURSOR = 30;
 
@@ -502,6 +503,11 @@ public final class XFixesExtension extends Extension {
                 break;
             case FETCH_REGION:
                 fetchRegion(client, inputStream, outputStream);
+                break;
+            case SET_CURSOR_NAME:
+                // The embedded cursor renderer has no named cursor table;
+                // consume the valid request and retain the anonymous cursor.
+                client.skipRequest();
                 break;
             case HIDE_CURSOR:
                 hideCursor(client, inputStream, outputStream);

@@ -46,6 +46,7 @@ public class XServer {
     private final List<Texture> deferredTextureDestroys = new ArrayList<>();
     private final EnumMap<Lockable, ReentrantLock> locks = new EnumMap<>(Lockable.class);
     private boolean relativeMouseMovement = false;
+    private XClient serverGrabOwner;
 
     public XServer(ScreenInfo screenInfo) {
         this(XServerHost.NO_OP, screenInfo);
@@ -195,6 +196,28 @@ public class XServer {
 
     public XLock lockAll() {
         return new MultiXLock(Lockable.values());
+    }
+
+    /**
+     * Record the protocol-level XGrabServer owner. The X connector currently
+     * dispatches clients on one epoll thread, so this state is checked by the
+     * request handler rather than represented by a Java lock held across
+     * requests.
+     */
+    public synchronized void grabServer(XClient client) {
+        if (serverGrabOwner == null) serverGrabOwner = client;
+    }
+
+    public synchronized void ungrabServer(XClient client) {
+        if (serverGrabOwner == client) serverGrabOwner = null;
+    }
+
+    public synchronized boolean isServerGrabbedByOther(XClient client) {
+        return serverGrabOwner != null && serverGrabOwner != client;
+    }
+
+    public synchronized void releaseServerGrab(XClient client) {
+        ungrabServer(client);
     }
 
     public Extension getExtensionByName(String name) {
