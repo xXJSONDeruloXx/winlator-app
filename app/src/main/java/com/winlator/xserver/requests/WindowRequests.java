@@ -187,6 +187,23 @@ public abstract class WindowRequests {
         window.removeProperty(inputStream.readInt());
     }
 
+    public static void listProperties(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
+        int windowId = inputStream.readInt();
+        Window window = client.xServer.windowManager.getWindow(windowId);
+        if (window == null) throw new BadWindow(windowId);
+
+        int[] names = window.getPropertyNames();
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(names.length);
+            outputStream.writeShort((short)names.length);
+            outputStream.writePad(22);
+            for (int name : names) outputStream.writeInt(name);
+        }
+    }
+
     public static void getProperty(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         boolean delete = client.getRequestData() == 1;
         short sequenceNumber = client.getSequenceNumber();

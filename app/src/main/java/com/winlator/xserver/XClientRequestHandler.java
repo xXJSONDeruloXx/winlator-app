@@ -258,6 +258,11 @@ public class XClientRequestHandler implements RequestHandler {
                             WindowRequests.getProperty(client, inputStream, outputStream);
                         }
                         break;
+                    case ClientOpcodes.LIST_PROPERTIES:
+                        try (XLock lock = client.xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
+                            WindowRequests.listProperties(client, inputStream, outputStream);
+                        }
+                        break;
                     case ClientOpcodes.SET_SELECTION_OWNER:
                         try (XLock lock = client.xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
                             SelectionRequests.setSelectionOwner(client, inputStream, outputStream);

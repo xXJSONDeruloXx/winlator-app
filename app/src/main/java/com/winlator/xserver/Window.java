@@ -131,6 +131,12 @@ public class Window extends XResource {
         return properties.get(id);
     }
 
+    public int[] getPropertyNames() {
+        int[] names = new int[properties.size()];
+        for (int i = 0; i < names.length; i++) names[i] = properties.keyAt(i);
+        return names;
+    }
+
     public void addProperty(Property property) {
         properties.put(property.name, property);
     }

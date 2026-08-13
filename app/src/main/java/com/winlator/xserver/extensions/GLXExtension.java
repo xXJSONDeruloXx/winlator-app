@@ -225,6 +225,10 @@ public class GLXExtension extends Extension {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0);
             outputStream.writeShort(client.getSequenceNumber());
+            // The generic reply length precedes the GLX-specific visual and
+            // property counts. One visual with 18 properties occupies 18
+            // four-byte words after the reply header.
+            outputStream.writeInt(properties.length);
             outputStream.writeInt(1);
             outputStream.writeInt(properties.length);
             outputStream.writePad(16);
