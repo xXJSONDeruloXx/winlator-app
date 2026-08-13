@@ -200,7 +200,11 @@ public final class RandRExtension extends Extension {
         requireOutput(inputStream.readInt());
         inputStream.skip(4); // config timestamp
         int nameLength = OUTPUT_NAME.length();
-        int replyLength = (4 + 4 + ((nameLength + 3) & ~3)) / 4;
+        // The fixed reply fields extend four bytes beyond the 32-byte X11
+        // reply header. Add the one CRTC ID, one 32-byte mode record, and
+        // the padded output name emitted below.
+        int paddedNameLength = (nameLength + 3) & ~3;
+        int replyLength = (4 + 4 + 32 + paddedNameLength) / 4;
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
