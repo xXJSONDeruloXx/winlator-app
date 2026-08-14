@@ -16,7 +16,7 @@ import java.nio.charset.StandardCharsets;
 /** Stages Winlator's GLX client for the embedded XServerCore GLX endpoint. */
 public final class SteamGladioProvisioner {
     private static final String GLADIO_ASSET = "graphics_driver/gladio-1.0.tzst";
-    private static final String GLADIO_BUILD_ID = "gladio-steamdroid-glx-lazy-init-fbconfig-bounds-fd0-all-socket-copies";
+    private static final String GLADIO_BUILD_ID = "gladio-steamdroid-glx-lazy-init-fbconfig-bounds-fd0-all-socket-copies-proc-address";
     private static final String GLADIO_BUILD_MARKER = ".steamdroid-build";
     private static final String GLX_COMPAT_LIBRARY = "libsteamdroid_glx_compat.so";
     private static final byte[] GLADIO_LEGACY_X11_SOCKET =
