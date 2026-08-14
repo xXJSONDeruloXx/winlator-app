@@ -1505,6 +1505,11 @@ static void native_steam_child(char **argv) {
         setenv("USER", "steam", 1) != 0 ||
         setenv("LOGNAME", "steam", 1) != 0 ||
         setenv("DISPLAY", ":0", 1) != 0 ||
+        /* Steam's ARM client uses this as the Gamescope/XRandR workaround
+         * switch.  Winlator exposes X11, not a Wayland Gamescope socket, but
+         * the non-empty value makes Steam return its safe dummy RandR output
+         * instead of dereferencing a NULL XRRGetOutputInfo result in GDK. */
+        setenv("GAMESCOPE_WAYLAND_DISPLAY", "steamdroid-x11", 1) != 0 ||
         setenv("PULSE_SERVER", "unix:/tmp/.sound/PS0", 1) != 0 ||
         setenv("XDG_RUNTIME_DIR", runtime_directory, 1) != 0 ||
         setenv("PATH", "/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/bin:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/bin:/usr/bin:/bin", 1) != 0 ||
@@ -1515,7 +1520,7 @@ static void native_steam_child(char **argv) {
         setenv("TU_DEBUG", "noconform", 1) != 0 ||
         setenv("MESA_VK_WSI_PRESENT_MODE", "mailbox", 1) != 0 ||
         setenv("LIBGL_KOPPER_DISABLE", "true", 1) != 0 ||
-        setenv("LD_PRELOAD", "/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so", 1) != 0 ||
+        setenv("LD_PRELOAD", "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so", 1) != 0 ||
         setenv("TMPDIR", "/tmp", 1) != 0 ||
         setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1) != 0 ||
         setenv("LANG", "C.UTF-8", 1) != 0 ||
