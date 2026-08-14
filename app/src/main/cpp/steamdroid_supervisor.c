@@ -97,6 +97,7 @@ static const char *holo_package_dir_path;
 static char mounted_paths[16][PATH_MAX];
 static size_t mounted_path_count;
 static pid_t native_steam_pid = -1;
+static pid_t system_dbus_pid = -1;
 static pid_t runtime_bwrap_pid = -1;
 static unsigned int runtime_job_id;
 static int runtime_job_status;
@@ -105,6 +106,7 @@ static int runtime_job_complete;
 static int make_directory_path(const char *path);
 static int prepare_holo_mounts(void);
 static void unmount_holo_mounts(void);
+static int start_private_system_dbus(void);
 static int install_guest_helpers(void);
 static int execute_runtime_bwrap(const unsigned char *payload, size_t payload_length,
                                   const int *received_fds, size_t received_fd_count,
@@ -185,6 +187,11 @@ static int prepare_private_namespace(void) {
         unmount_holo_mounts();
         return mount_status;
     }
+    int dbus_status = start_private_system_dbus();
+    if (dbus_status != 0) {
+        unmount_holo_mounts();
+        return dbus_status;
+    }
     prepared = 1;
     session_id++;
     namespace_identity();
@@ -207,6 +214,15 @@ static void reap_children(void) {
                 log_supervisor_message("native steam pid=%d changed wait_status=0x%x\n", child, status);
             }
             native_steam_pid = -1;
+        } else if (child == system_dbus_pid) {
+            if (WIFEXITED(status)) {
+                log_supervisor_message("private system dbus pid=%d exited status=%d\n",
+                                       child, WEXITSTATUS(status));
+            } else if (WIFSIGNALED(status)) {
+                log_supervisor_message("private system dbus pid=%d killed signal=%d\n",
+                                       child, WTERMSIG(status));
+            }
+            system_dbus_pid = -1;
         } else if (child == runtime_bwrap_pid) {
             runtime_bwrap_pid = -1;
             runtime_job_complete = 1;
@@ -1490,7 +1506,20 @@ static void native_steam_child(char **argv) {
     snprintf(runtime_directory, sizeof(runtime_directory), "/run/user/%d", expected_uid);
     if (make_directory_path(runtime_directory) != 0 ||
         chown(runtime_directory, (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
-        chmod(runtime_directory, 0700) != 0) _exit(126);
+        chmod(runtime_directory, 0700) != 0 ||
+        make_directory_path("/run/steamdroid-tmp") != 0 ||
+        chown("/run/steamdroid-tmp", (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
+        chmod("/run/steamdroid-tmp", 0700) != 0 ||
+        make_directory_path("/home/steam/.config/cef_user_data") != 0 ||
+        chown("/home/steam/.config", (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
+        chown("/home/steam/.config/cef_user_data", (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
+        chmod("/home/steam/.config", 0700) != 0 ||
+        chmod("/home/steam/.config/cef_user_data", 0700) != 0 ||
+        make_directory_path("/home/steam/.cache/mesa_shader_cache") != 0 ||
+        chown("/home/steam/.cache", (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
+        chown("/home/steam/.cache/mesa_shader_cache", (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
+        chmod("/home/steam/.cache", 0700) != 0 ||
+        chmod("/home/steam/.cache/mesa_shader_cache", 0700) != 0) _exit(126);
 
     /*
      * Keep the native ARM client launch environment equivalent to the
@@ -1511,17 +1540,29 @@ static void native_steam_child(char **argv) {
          * instead of dereferencing a NULL XRRGetOutputInfo result in GDK. */
         setenv("GAMESCOPE_WAYLAND_DISPLAY", "steamdroid-x11", 1) != 0 ||
         setenv("PULSE_SERVER", "unix:/tmp/.sound/PS0", 1) != 0 ||
+        setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/run/dbus/system_bus_socket", 1) != 0 ||
         setenv("XDG_RUNTIME_DIR", runtime_directory, 1) != 0 ||
+        setenv("XDG_CACHE_HOME", "/home/steam/.cache", 1) != 0 ||
+        setenv("MESA_SHADER_CACHE_DIR", "/home/steam/.cache/mesa_shader_cache", 1) != 0 ||
         setenv("PATH", "/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/bin:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/bin:/usr/bin:/bin", 1) != 0 ||
         setenv("LD_LIBRARY_PATH", "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:/usr/lib:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu/pulseaudio:/lib", 1) != 0 ||
         setenv("VK_DRIVER_FILES", "/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json", 1) != 0 ||
         setenv("LIBGL_DRIVERS_PATH", "/usr/lib/dri", 1) != 0 ||
-        setenv("MESA_LOADER_DRIVER_OVERRIDE", "kgsl", 1) != 0 ||
+        setenv("MESA_LOADER_DRIVER_OVERRIDE", "swrast", 1) != 0 ||
+        setenv("GALLIUM_DRIVER", "softpipe", 1) != 0 ||
+        setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1) != 0 ||
         setenv("TU_DEBUG", "noconform", 1) != 0 ||
         setenv("MESA_VK_WSI_PRESENT_MODE", "mailbox", 1) != 0 ||
         setenv("LIBGL_KOPPER_DISABLE", "true", 1) != 0 ||
+        setenv("STEAM_LAUNCH_WRAPPER_SCOPE", "0", 1) != 0 ||
+        setenv("STEAM_LAUNCH_WRAPPER_JOURNAL", "0", 1) != 0 ||
+        setenv("STEAM_LAUNCH_WRAPPER_AUDIO_NAMESPACE", "0", 1) != 0 ||
         setenv("LD_PRELOAD", "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so", 1) != 0 ||
-        setenv("TMPDIR", "/tmp", 1) != 0 ||
+        /* Chromium's ProcessSingleton creates its private socket directory
+         * below TMPDIR. Android app-data filesystems can reject that
+         * operation, while the session-private /run tmpfs has normal Unix
+         * directory semantics. */
+        setenv("TMPDIR", "/run/steamdroid-tmp", 1) != 0 ||
         setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1) != 0 ||
         setenv("LANG", "C.UTF-8", 1) != 0 ||
         setenv("LC_ALL", "C.UTF-8", 1) != 0 ||
@@ -1830,15 +1871,76 @@ static int mount_proc(const char *target) {
     return 0;
 }
 
-static int mount_tmpfs(const char *target) {
+static int mount_tmpfs_with_options(const char *target, const char *options) {
     int directory_status = make_directory_path(target);
     if (directory_status != 0) return directory_status;
     if (mount("tmpfs", target, "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC,
-              "mode=1777,size=64m") != 0) return -errno;
+              options) != 0) return -errno;
     if (append_mount(target) != 0) {
         umount2(target, MNT_DETACH);
         return -ENOSPC;
     }
+    return 0;
+}
+
+static int mount_tmpfs(const char *target) {
+    return mount_tmpfs_with_options(target, "mode=1777,size=64m");
+}
+
+static int wait_for_path(const char *path, pid_t child) {
+    for (int attempt = 0; attempt < 100; attempt++) {
+        struct stat path_stat;
+        if (stat(path, &path_stat) == 0) return 0;
+        if (kill(child, 0) != 0 && errno != EPERM) return -errno;
+        usleep(50000);
+    }
+    return -ETIMEDOUT;
+}
+
+static int start_private_system_dbus(void) {
+    if (holo_root_path == NULL || system_dbus_pid > 0) return 0;
+
+    char socket_path[PATH_MAX];
+    int path_length = snprintf(socket_path, sizeof(socket_path),
+                                "%s/run/dbus/system_bus_socket", holo_root_path);
+    if (path_length <= 0 || (size_t)path_length >= sizeof(socket_path)) return -ENAMETOOLONG;
+    char dbus_directory[PATH_MAX];
+    path_length = snprintf(dbus_directory, sizeof(dbus_directory), "%s/run/dbus", holo_root_path);
+    if (path_length <= 0 || (size_t)path_length >= sizeof(dbus_directory) ||
+        make_directory_path(dbus_directory) != 0) return -EIO;
+
+    pid_t child = fork();
+    if (child < 0) return -errno;
+    if (child == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGTERM, 0L, 0L, 0L);
+        if (chroot(holo_root_path) != 0 || chdir("/") != 0) _exit(126);
+        int log_fd = open("/tmp/steamdroid-dbus-system.log",
+                          O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+        if (log_fd >= 0) {
+            dup2(log_fd, STDOUT_FILENO);
+            dup2(log_fd, STDERR_FILENO);
+            close(log_fd);
+        }
+        int null_fd = open("/dev/null", O_RDWR | O_CLOEXEC);
+        if (null_fd < 0 || dup2(null_fd, STDIN_FILENO) < 0) _exit(126);
+        if (null_fd != STDIN_FILENO) close(null_fd);
+        setenv("PATH", "/usr/bin:/bin", 1);
+        setenv("HOME", "/root", 1);
+        setenv("DBUS_FATAL_WARNINGS", "0", 1);
+        execl("/usr/bin/dbus-daemon", "dbus-daemon", "--system", "--nofork",
+              "--nopidfile", (char *)NULL);
+        _exit(errno == ENOENT ? 127 : 126);
+    }
+    system_dbus_pid = child;
+    int wait_status = wait_for_path(socket_path, child);
+    if (wait_status != 0) {
+        kill(child, SIGTERM);
+        waitpid(child, NULL, 0);
+        system_dbus_pid = -1;
+        log_supervisor_message("private system dbus failed status=%d\n", wait_status);
+        return wait_status;
+    }
+    log_supervisor_message("private system dbus pid=%d ready socket=%s\n", child, socket_path);
     return 0;
 }
 
@@ -1861,6 +1963,9 @@ static int prepare_holo_mounts(void) {
     if (status != 0) return status;
     snprintf(target, sizeof(target), "%s/dev/shm", holo_root_path);
     status = mount_tmpfs(target);
+    if (status != 0) return status;
+    snprintf(target, sizeof(target), "%s/run", holo_root_path);
+    status = mount_tmpfs_with_options(target, "mode=755,size=16m");
     if (status != 0) return status;
     snprintf(target, sizeof(target), "%s/sys", holo_root_path);
     status = bind_mount("/sys", target);

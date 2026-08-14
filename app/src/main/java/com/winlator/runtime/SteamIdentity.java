@@ -64,6 +64,12 @@ public final class SteamIdentity {
         // the dynamic Android application UID/GID for this session.
         passwd.append("steam:x:").append(uid).append(':').append(gid)
             .append(":Steam:/home/steam:/bin/sh\n");
+        // Holo's stock D-Bus system.conf asks dbus-daemon to drop to the
+        // named dbus account. The minimal Holo release does not ship that
+        // service account, so provide a session-local alias rather than
+        // weakening the pinned configuration or mutating the release image.
+        passwd.append("dbus:x:").append(uid).append(':').append(gid)
+            .append(":D-Bus:/run/dbus:/usr/bin/nologin\n");
         if (!FileUtils.writeString(new File(etc, "passwd"), passwd.toString())) {
             throw new IOException("unable to write guest passwd view");
         }
@@ -71,6 +77,7 @@ public final class SteamIdentity {
         StringBuilder group = new StringBuilder();
         group.append("root:x:0:\n");
         group.append("steam:x:").append(gid).append(":steam\n");
+        group.append("dbus:x:").append(gid).append(":dbus\n");
         for (int groupId : supplementaryGroups) {
             if (groupId == gid) continue;
             group.append("android_").append(groupId).append(":x:").append(groupId)
