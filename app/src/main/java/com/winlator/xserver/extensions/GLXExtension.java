@@ -187,8 +187,21 @@ public class GLXExtension extends Extension {
                 " context=" + contextId + " ptr=0x" + Long.toHexString(context));
             if (context == 0) throw new GLXBadContext();
 
-            destroyGLXContext(context);
-            contexts.delete(contextId);
+            /*
+             * The native renderer ring can still have currentRenderer pointing
+             * at this GLXContext after an explicit GLX DestroyContext.  Native
+             * destruction frees clientState.framebuffers while that ring may
+             * still be in destroyDisplayBuffers(), which caused a host UAF in
+             * GLFramebuffer_delete/SparseArray_get.  X client teardown already
+             * has the required ordering: stop all renderer rings first, then
+             * destroy every GLXContext in destroyAllGLXContexts().
+             *
+             * Keep the pointer mapped until that ordered client-disconnect
+             * teardown.  The retained contexts are bounded by this X client
+             * and are released by destroyAllGLXContexts().
+             */
+            Log.d(TAG, "Deferring DestroyGLXContext context=" + contextId +
+                " until X client disconnect");
         }
     }
 
