@@ -12,4 +12,10 @@ public interface XServerHost {
     default void sendGamepadState(ControlsProfile profile) {}
     default void midiShortMessage(byte status, byte data1, byte data2, byte data3) {}
     default String nativeLibraryDir() { return null; }
+
+    /**
+     * An embedded display has no external window manager to map root-level
+     * client windows. Legacy Winlator sessions keep the normal X11 contract.
+     */
+    default boolean autoMapTopLevelWindows() { return false; }
 }

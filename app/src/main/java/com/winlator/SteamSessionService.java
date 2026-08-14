@@ -187,8 +187,13 @@ public class SteamSessionService extends Service {
             steamArguments.add("-steamos3");
             steamArguments.add("-steampal");
             steamArguments.add("-steamdeck");
+            // The embedded X server has no external window manager to promote
+            // a normal Steam top-level window. Use the same explicit fullscreen
+            // handoff as the validated ARM64 Termux/X11 launcher so Steam's
+            // GamepadUI surface is created for the whole logical display.
+            steamArguments.add("-fullscreen");
+            steamArguments.add("-fulldesktopres");
             steamArguments.add("-no-cef-sandbox");
-            steamArguments.add("-cef-disable-gpu");
             // Match the validated ARM64 Steam launch profile used by the
             // sibling Termux:X11 harness. These avoid the slow client-side
             // preallocation path and keep the already-provisioned client from

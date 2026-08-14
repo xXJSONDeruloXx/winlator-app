@@ -105,6 +105,7 @@ extra	libxinerama	1.1.5-2	f104386bddf9968da211e6fa7bb3b2608c445f7dc5735006ccc536
 extra	shared-mime-info	2.4-2	a182bece2fad7340a3753baa669ecf98a44f4acf02f923a96504b2fec4cd40bd	shared-mime-info-2.4-2-aarch64.pkg.tar.zst
 extra	tinysparql	3.10.1-2	16509f8823e5e9c4ecc4cb83ed494fedae7f08313fdf957af350ee8189b61092	tinysparql-3.10.1-2-aarch64.pkg.tar.zst
 extra	xorg-xprop	1.2.8-1	bdf2eb4cc1bf9650bd4404557e66562e9dfa644d612a12470c46c9b595efdc8a	xorg-xprop-1.2.8-1-aarch64.pkg.tar.zst
+extra	xorg-xwininfo	1.1.6-2	1da505cb72aa6b1d147f0a2fac493325450cab84381f7adb43cc9fc5920ed007	xorg-xwininfo-1.1.6-2-aarch64.pkg.tar.zst
 archlinuxarm	atk	2.38.0-1	144eebae9d0854d193a1243c0599c52747a8941ec5d795bf619092f10b5fda5d	atk-2.38.0-1-aarch64.pkg.tar.xz
 archlinuxarm	gtk2	2.24.33-2	a2927d0e2b2b3e0b8e13cfb88adfa947a449d93856abd782f08dae5aee5aad40	gtk2-2.24.33-2-aarch64.pkg.tar.xz
 extra	libpipewire	1:1.4.9-1	e85332b152c7357a684b0f6d623e80e7aeee839877df17a5e9cad6962e863de2	libpipewire-1:1.4.9-1-aarch64.pkg.tar.zst

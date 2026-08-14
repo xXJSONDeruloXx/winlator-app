@@ -14,6 +14,7 @@ import com.winlator.xserver.extensions.RandRExtension;
 import com.winlator.xserver.extensions.SyncExtension;
 import com.winlator.xserver.extensions.XComposite;
 import com.winlator.xserver.extensions.XFixesExtension;
+import com.winlator.xserver.extensions.XInputExtension;
 
 import java.nio.charset.Charset;
 import java.util.EnumMap;
@@ -130,6 +131,12 @@ public class XServer {
 
     public XServerHost getHost() {
         return host;
+    }
+
+    public boolean shouldAutoMapTopLevelWindow(Window window) {
+        return host.autoMapTopLevelWindows() &&
+            window.getParent() == windowManager.rootWindow &&
+            window.isInputOutput() && window.getWidth() > 1 && window.getHeight() > 1;
     }
 
     public String getNativeLibraryDir() {
@@ -280,7 +287,8 @@ public class XServer {
             new XComposite(this, opcode--),
             new GLXExtension(this, opcode--),
             new XFixesExtension(this, opcode--),
-            new RandRExtension(this, opcode--)
+            new RandRExtension(this, opcode--),
+            new XInputExtension(this, opcode--)
         };
     }
 

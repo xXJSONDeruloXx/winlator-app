@@ -65,6 +65,14 @@ public abstract class WindowRequests {
         client.setEventListenerForWindow(window, window.attributes.getEventMask());
         client.registerAsOwnerOfResource(window);
         parent.sendEvent(Event.SUBSTRUCTURE_NOTIFY, new CreateNotify(parent, window));
+
+        // SteamDroid's XServerCore is the display server and compositor for
+        // the Activity itself. With no external WM, map useful root-level
+        // client windows at creation time; ordinary Winlator XServer hosts
+        // retain the protocol's client-requested mapping behavior.
+        if (client.xServer.shouldAutoMapTopLevelWindow(window)) {
+            client.xServer.windowManager.mapWindow(window);
+        }
     }
 
     public static void getWindowAttributes(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
