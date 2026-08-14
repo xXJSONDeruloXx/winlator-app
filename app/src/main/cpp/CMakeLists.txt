@@ -7,6 +7,10 @@ add_subdirectory(midihandler)
 add_subdirectory(libadrenotools)
 add_subdirectory(gladiorenderer)
 
+add_library(steamdroid_glx_compat SHARED steamdroid_glx_compat.c)
+target_compile_options(steamdroid_glx_compat PRIVATE -fPIC -Wall -Wextra -Werror)
+target_link_options(steamdroid_glx_compat PRIVATE -nostdlib -Wl,--as-needed -Wl,--no-undefined)
+
 add_executable(steamdroid_supervisor steamdroid_supervisor.c)
 target_compile_options(steamdroid_supervisor PRIVATE -fPIE -Wall -Wextra -Werror)
 target_link_options(steamdroid_supervisor PRIVATE -pie -Wl,--build-id=sha1)

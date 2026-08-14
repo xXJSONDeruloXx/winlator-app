@@ -10,6 +10,10 @@ public class PixmapManager extends XResourceManager {
     private final SparseArray<Pixmap> pixmaps = new SparseArray<>();
 
     public PixmapManager() {
+        // Keep the primary visual at the 32-bit depth used by the Android
+        // backing surface. Steam's bundled Gladio client asks XGetVisualInfo
+        // for a 32-bit TrueColor visual before creating a 24-depth window on
+        // that same 32-bpp surface; WindowManager handles that narrow case.
         visual = new Visual(IDGenerator.generate(), true, 32, 24, 0xff0000, 0x00ff00, 0x0000ff);
         supportedVisuals = new Visual[]{visual, new Visual(IDGenerator.generate(), false, 1, 1, 0, 0, 0)};
 

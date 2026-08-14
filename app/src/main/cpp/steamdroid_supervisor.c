@@ -1726,13 +1726,15 @@ static void native_steam_child(char **argv) {
         length = snprintf(runtime_gtk3, sizeof(runtime_gtk3),
                           "%s/libgtk-3.so.0", runtime_files_lib);
         if (length <= 0 || (size_t)length >= sizeof(runtime_gtk3)) _exit(126);
+        const char *glx_compat_library = "/opt/steamdroid-gladio/usr/lib/libsteamdroid_glx_compat.so";
         const char *gladio_library = "/opt/steamdroid-gladio/usr/lib/libGL.so.1.7.0";
-        if (access(gladio_library, R_OK) == 0 &&
+        if (access(glx_compat_library, R_OK) == 0 &&
+            access(gladio_library, R_OK) == 0 &&
             access(runtime_gtk3, R_OK) == 0 &&
             access("/usr/lib/libstdc++.so.6", R_OK) == 0) {
             preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
-                              "%s:/usr/lib/libstdc++.so.6:%s:/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
-                              gladio_library, runtime_gtk3);
+                              "%s:%s:/usr/lib/libstdc++.so.6:%s:/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
+                              glx_compat_library, gladio_library, runtime_gtk3);
         }
         else if (access(runtime_gtk3, R_OK) == 0 &&
                  access("/usr/lib/libstdc++.so.6", R_OK) == 0) {

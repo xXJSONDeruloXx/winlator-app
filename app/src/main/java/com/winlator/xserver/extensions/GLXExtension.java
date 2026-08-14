@@ -1,5 +1,6 @@
 package com.winlator.xserver.extensions;
 
+import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_ERROR;
 import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_SUCCESS;
 
 import android.util.Log;
@@ -115,7 +116,12 @@ public class GLXExtension extends Extension {
             }
 
             long sharedContextPtr = shareContextId > 0 ? contexts.get(shareContextId) : 0;
+            Log.d(TAG, "CreateGLXContext sequence=" + (client.getSequenceNumber() & 0xffff) +
+                " context=" + contextId + " share=" + shareContextId +
+                " share_ptr=0x" + Long.toHexString(sharedContextPtr));
             long context = createGLXContext(contextId, sharedContextPtr);
+            Log.d(TAG, "CreateGLXContext result context=" + contextId +
+                " ptr=0x" + Long.toHexString(context));
             if (context == 0) throw new BadAlloc();
             contexts.put(contextId, context);
         }
@@ -129,10 +135,16 @@ public class GLXExtension extends Extension {
 
         if (contextId == 0) throw new GLXBadContext();
         createGLXContextForClient(client, contextId, shareList);
-        // GLXCreateContext is a void request. Consume its three bytes of
-        // protocol padding and do not fabricate a reply: libGLX would treat
-        // such a reply as the response to a later request and lose framing.
+        // The embedded Gladio client waits for a reply after this request,
+        // despite GLXCreateContext being void in the ordinary wire protocol.
+        // Keep this compatibility reply scoped to the Gladio client ABI.
         inputStream.skip(3);
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writePad(28);
+        }
     }
 
     private void makeCurrent(XClient client, XInputStream inputStream, XOutputStream outputStream)
@@ -171,6 +183,8 @@ public class GLXExtension extends Extension {
             if (contexts == null) throw new GLXBadContext();
 
             long context = contexts.get(contextId);
+            Log.d(TAG, "DestroyGLXContext sequence=" + (client.getSequenceNumber() & 0xffff) +
+                " context=" + contextId + " ptr=0x" + Long.toHexString(context));
             if (context == 0) throw new GLXBadContext();
 
             destroyGLXContext(context);
@@ -393,10 +407,19 @@ public class GLXExtension extends Extension {
         Log.d(TAG, "CreateContextAttribsARB sequence=" + (client.getSequenceNumber() & 0xffff) +
             " fbconfig=" + fbConfigId + " version=" + glMajorVersion + "." + glMinorVersion +
             " success=" + success);
-        if (!success) throw new BadImplementation();
-        // GLXCreateContextAttribsARB is also a void request. Errors are
-        // represented by the normal X error path; success has no reply.
-        createGLXContextForClient(client, contextId, shareContext);
+        if (success) {
+            createGLXContextForClient(client, contextId, shareContext);
+        }
+
+        // Gladio's custom libGL also waits for a reply here. Preserve the
+        // response framing it expects while retaining the normal failure
+        // indication for unsupported context versions.
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(success ? RESPONSE_CODE_SUCCESS : RESPONSE_CODE_ERROR);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writePad(28);
+        }
     }
 
     @Override

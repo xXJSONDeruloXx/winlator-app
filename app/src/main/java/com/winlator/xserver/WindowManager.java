@@ -185,7 +185,16 @@ public class WindowManager extends XResourceManager {
 
         if (isInputOutput) {
             visual = visual == null ? parent.getContent().visual : visual;
-            if (depth != visual.depth) throw new BadMatch();
+            if (depth != visual.depth) {
+                // Steam's ARM client selects Winlator's 32-bpp TrueColor
+                // visual through Gladio, then issues a 24-depth window
+                // request. The drawable remains backed by the same 32-bpp
+                // visual; accept only this primary-surface compatibility
+                // tuple and retain strict X11 validation otherwise.
+                boolean primarySurfaceCompatibility = depth == 24 && visual.depth == 32 &&
+                    visual == drawableManager.getVisual();
+                if (!primarySurfaceCompatibility) throw new BadMatch();
+            }
         }
 
         Drawable drawable = null;
