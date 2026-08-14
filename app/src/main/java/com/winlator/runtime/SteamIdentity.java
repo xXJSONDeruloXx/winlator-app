@@ -7,6 +7,7 @@ import com.winlator.core.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -14,6 +15,8 @@ import java.util.Set;
 
 /** Dynamic Android identity and the guest passwd/group view derived from it. */
 public final class SteamIdentity {
+    private static final SecureRandom MACHINE_ID_RANDOM = new SecureRandom();
+
     public final int uid;
     public final int gid;
     public final List<Integer> supplementaryGroups;
@@ -78,6 +81,29 @@ public final class SteamIdentity {
         }
         FileUtils.chmod(new File(etc, "passwd"), 0644);
         FileUtils.chmod(new File(etc, "group"), 0644);
+
+        File machineIdFile = new File(etc, "machine-id");
+        String machineId = machineIdFile.isFile() ? FileUtils.readString(machineIdFile) : null;
+        if (machineId == null || !machineId.trim().matches("[0-9a-fA-F]{32}")) {
+            byte[] bytes = new byte[16];
+            MACHINE_ID_RANDOM.nextBytes(bytes);
+            StringBuilder generated = new StringBuilder(32);
+            for (byte value : bytes) generated.append(String.format("%02x", value & 0xff));
+            machineId = generated.toString() + "\n";
+            if (!FileUtils.writeString(machineIdFile, machineId)) {
+                throw new IOException("unable to write guest machine-id");
+            }
+        }
+        FileUtils.chmod(machineIdFile, 0644);
+
+        File dbusDirectory = new File(rootDir, "var/lib/dbus");
+        if (!dbusDirectory.isDirectory() && !dbusDirectory.mkdirs()) {
+            throw new IOException("unable to create guest D-Bus state directory");
+        }
+        File dbusMachineId = new File(dbusDirectory, "machine-id");
+        if (!dbusMachineId.exists() && !FileUtils.isSymlink(dbusMachineId)) {
+            FileUtils.symlink("/etc/machine-id", dbusMachineId.getAbsolutePath());
+        }
     }
 
     public String groupsCsv() {
