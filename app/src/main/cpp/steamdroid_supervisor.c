@@ -1520,6 +1520,11 @@ static int run_steam_with_private_dbus(char **steam_argv) {
         if (address_pipe[1] != STDOUT_FILENO) close(address_pipe[1]);
         prctl(PR_SET_PDEATHSIG, SIGTERM, 0L, 0L, 0L);
         unsetenv("LD_PRELOAD");
+        /* The session daemon is the Holo-pinned executable, not a Steam
+         * Runtime payload.  Its private libdbus ABI must resolve from the
+         * same Holo library set; restore the Steam Runtime path only in the
+         * Steam child below. */
+        if (setenv("LD_LIBRARY_PATH", "/usr/lib:/lib", 1) != 0) _exit(126);
         execl("/usr/bin/dbus-daemon", "dbus-daemon", "--session", "--nofork",
               "--print-address=1", (char *)NULL);
         _exit(127);
@@ -1697,7 +1702,7 @@ static void native_steam_child(char **argv) {
                           runtime_root, runtime_platform);
         if (length <= 0 || (size_t)length >= sizeof(runtime_path)) _exit(126);
         length = snprintf(runtime_library_path, sizeof(runtime_library_path),
-                          "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:/usr/lib:%s:%s:/lib",
+                          "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:%s:%s:/usr/lib:/lib",
                           runtime_files_lib, runtime_pulse_lib);
     }
     else {
