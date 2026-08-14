@@ -46,6 +46,7 @@ public final class RandRExtension extends Extension {
     private static final int GET_CRTC_GAMMA = 23;
     private static final int SET_CRTC_GAMMA = 24;
     private static final int GET_CRTC_TRANSFORM = 27;
+    private static final int GET_PANNING = 28;
     private static final int GET_SCREEN_RESOURCES_CURRENT = 25;
     private static final int SET_OUTPUT_PRIMARY = 30;
     private static final int GET_OUTPUT_PRIMARY = 31;
@@ -323,6 +324,35 @@ public final class RandRExtension extends Extension {
         }
     }
 
+    private void getPanning(XClient client, XInputStream inputStream, XOutputStream outputStream)
+        throws IOException, XRequestError {
+        requireCrtc(inputStream.readInt());
+
+        // This single fixed CRTC does not implement panning. RandR 1.3
+        // requires RRGetPanning to return a successful, zeroed
+        // configuration in that case; returning BadImplementation makes
+        // otherwise-valid clients discard the entire RandR screen.
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0); // RR_ConfigSuccess
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(1); // xRRGetPanningReply is 36 bytes
+            outputStream.writeInt(timestamp());
+            outputStream.writeShort((short)0); // left
+            outputStream.writeShort((short)0); // top
+            outputStream.writeShort((short)0); // width
+            outputStream.writeShort((short)0); // height
+            outputStream.writeShort((short)0); // track_left
+            outputStream.writeShort((short)0); // track_top
+            outputStream.writeShort((short)0); // track_width
+            outputStream.writeShort((short)0); // track_height
+            outputStream.writeShort((short)0); // border_left
+            outputStream.writeShort((short)0); // border_top
+            outputStream.writeShort((short)0); // border_right
+            outputStream.writeShort((short)0); // border_bottom
+        }
+    }
+
     private void writeIdentityTransform(XOutputStream outputStream) {
         outputStream.writeInt(0x00010000);
         outputStream.writeInt(0);
@@ -416,6 +446,9 @@ public final class RandRExtension extends Extension {
                 break;
             case GET_CRTC_TRANSFORM:
                 getCrtcTransform(client, inputStream, outputStream);
+                break;
+            case GET_PANNING:
+                getPanning(client, inputStream, outputStream);
                 break;
             case SELECT_INPUT:
                 selectInput(client, inputStream, outputStream);
