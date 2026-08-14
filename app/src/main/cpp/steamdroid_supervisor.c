@@ -1654,10 +1654,10 @@ static void native_steam_child(char **argv) {
         setenv("STEAM_LAUNCH_WRAPPER_SCOPE", "0", 1) != 0 ||
         setenv("STEAM_LAUNCH_WRAPPER_JOURNAL", "0", 1) != 0 ||
         setenv("STEAM_LAUNCH_WRAPPER_AUDIO_NAMESPACE", "0", 1) != 0 ||
-        /* Steam's ARM client still requires the ordinary XRandR client ABI;
-         * the embedded server supplies the protocol implementation. Keep the
-         * semaphore shim alongside it for Android's missing SysV semaphore
-         * syscalls. */
+        /* The native ARM client needs Holo's XRandR client ABI to resolve its
+         * output probe; XServerCore remains the owner of the protocol side.
+         * Keep the preload scoped to the Holo ABI and the Android SysV
+         * semaphore shim rather than inheriting arbitrary app libraries. */
         setenv("LD_PRELOAD", "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so", 1) != 0 ||
         /* Chromium's ProcessSingleton creates its private socket directory
          * below TMPDIR. Android app-data filesystems can reject that

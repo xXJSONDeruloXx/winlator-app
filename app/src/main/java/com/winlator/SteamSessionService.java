@@ -177,10 +177,13 @@ public class SteamSessionService extends Service {
             String steamExecutable = "/home/steam/.local/share/Steam/" + channel.steamClientExecutable;
             List<String> steamArguments = new ArrayList<>(Arrays.asList(
                 "/usr/bin/dbus-run-session", "--", steamExecutable));
-            // Request the native ARM client's Big Picture path. These flags
-            // are interpreted by Steam itself; Winlator does not provide a
-            // replacement frontend or translated Windows process.
+            // Request the native ARM client's SteamOS/GamepadUI path. These
+            // flags are interpreted by Steam itself; Winlator does not
+            // provide a replacement frontend or translated Windows process.
             steamArguments.add("-gamepadui");
+            steamArguments.add("-steamos3");
+            steamArguments.add("-steampal");
+            steamArguments.add("-steamdeck");
             steamArguments.add("-no-cef-sandbox");
             steamArguments.add("-cef-disable-gpu");
             // Match the validated ARM64 Steam launch profile used by the

@@ -217,9 +217,10 @@ public final class RandRExtension extends Extension {
             outputStream.writeInt(CRTC_ID);
             outputStream.writeInt(screen().getWidthInMillimeters());
             outputStream.writeInt(screen().getHeightInMillimeters());
-            // RR_Connection_Connected is 1. Reporting Unknown (0) makes
-            // Chromium conclude that the X server has no usable displays.
-            outputStream.writeByte((byte)1); // connection
+            // RandR encodes Connected as 0, Disconnected as 1, and Unknown
+            // as 2. Reporting Disconnected makes Steam/CEF discard the only
+            // output even though its mode and CRTC are otherwise valid.
+            outputStream.writeByte((byte)0); // RR_Connection_Connected
             outputStream.writeByte((byte)0); // subpixel unknown
             outputStream.writeShort((short)1); // nCrtcs
             outputStream.writeShort((short)1); // nModes
