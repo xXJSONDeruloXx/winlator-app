@@ -2,8 +2,6 @@ package com.winlator.xserver.requests;
 
 import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_SUCCESS;
 
-import android.util.Log;
-
 import com.winlator.renderer.FullscreenTransformation;
 import com.winlator.xconnector.XInputStream;
 import com.winlator.xconnector.XOutputStream;
@@ -31,8 +29,6 @@ import java.io.IOException;
 import java.util.List;
 
 public abstract class WindowRequests {
-    private static final String TAG = "SteamDroid.XServer";
-
     public static void createWindow(XClient client, XInputStream inputStream, XOutputStream outputStream) throws XRequestError {
         byte depth = client.getRequestData();
         int windowId = inputStream.readInt();
@@ -52,12 +48,6 @@ public abstract class WindowRequests {
         int visualId = inputStream.readInt();
         Visual visual = client.xServer.pixmapManager.getVisual(visualId);
         Bitmask valueMask = new Bitmask(inputStream.readInt());
-
-        Log.d(TAG, "CreateWindow sequence=" + (client.getSequenceNumber() & 0xffff) +
-            " window=" + windowId + " parent=" + parentId + " depth=" + (depth & 0xff) +
-            " visual=" + visualId + " resolved_depth=" +
-            (visual != null ? (visual.depth & 0xff) : -1) +
-            " class=" + windowClass + " size=" + (width & 0xffff) + "x" + (height & 0xffff));
 
         Window window = client.xServer.windowManager.createWindow(windowId, parent, x, y, width, height, windowClass, visual, depth, client);
         window.setBorderWidth(borderWidth);

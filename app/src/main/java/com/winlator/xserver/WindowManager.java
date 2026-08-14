@@ -1,6 +1,5 @@
 package com.winlator.xserver;
 
-import android.util.Log;
 import android.util.SparseArray;
 
 import com.winlator.core.Bitmask;
@@ -23,7 +22,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class WindowManager extends XResourceManager {
-    private static final String TAG = "SteamDroid.XServer";
     public enum FocusRevertTo {NONE, POINTER_ROOT, PARENT}
     public final Window rootWindow;
     private final SparseArray<Window> windows = new SparseArray<>();
@@ -105,16 +103,12 @@ public class WindowManager extends XResourceManager {
             Window parent = window.getParent();
             if (!parent.hasEventListenerFor(Event.SUBSTRUCTURE_REDIRECT) || window.attributes.isOverrideRedirect()) {
                 window.attributes.setMapped(true);
-                Log.i(TAG, "map window id=" + window.id + " parent=" + parent.id +
-                    " geometry=" + window.getWidth() + "x" + window.getHeight() +
-                    " override=" + window.attributes.isOverrideRedirect());
                 window.sendEvent(Event.STRUCTURE_NOTIFY, new MapNotify(window, window));
                 parent.sendEvent(Event.SUBSTRUCTURE_NOTIFY, new MapNotify(parent, window));
                 window.sendEvent(Event.EXPOSURE, new Expose(window));
                 triggerOnMapWindow(window);
             }
             else {
-                Log.i(TAG, "redirect map request id=" + window.id + " parent=" + parent.id);
                 parent.sendEvent(Event.SUBSTRUCTURE_REDIRECT, new MapRequest(parent, window));
             }
         }

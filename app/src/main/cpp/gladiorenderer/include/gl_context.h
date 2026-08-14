@@ -8,6 +8,7 @@
 typedef struct GLXContext {
     EGLContext eglContext;
     GLRenderer renderer;
+    GLenum renderMode;
 } GLXContext;
 
 typedef struct GLContext {

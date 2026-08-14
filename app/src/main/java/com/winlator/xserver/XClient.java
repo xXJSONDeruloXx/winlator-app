@@ -34,6 +34,7 @@ public class XClient extends ConnectedClient implements XResourceManager.OnResou
             xServer.pixmapManager.addOnResourceLifecycleListener(this);
             xServer.graphicsContextManager.addOnResourceLifecycleListener(this);
             xServer.cursorManager.addOnResourceLifecycleListener(this);
+            xServer.pictureManager.addOnResourceLifecycleListener(this);
         }
     }
 
@@ -88,6 +89,9 @@ public class XClient extends ConnectedClient implements XResourceManager.OnResou
                 else if (resource instanceof Cursor) {
                     xServer.cursorManager.freeCursor(resource.id);
                 }
+                else if (resource instanceof Picture) {
+                    xServer.pictureManager.freePicture(resource.id);
+                }
             }
 
             while (!eventListeners.isEmpty()) {
@@ -99,6 +103,7 @@ public class XClient extends ConnectedClient implements XResourceManager.OnResou
             xServer.pixmapManager.removeOnResourceLifecycleListener(this);
             xServer.graphicsContextManager.removeOnResourceLifecycleListener(this);
             xServer.cursorManager.removeOnResourceLifecycleListener(this);
+            xServer.pictureManager.removeOnResourceLifecycleListener(this);
             xServer.resourceIDs.free(resourceIDBase);
         }
     }

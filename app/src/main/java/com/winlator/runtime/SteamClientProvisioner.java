@@ -17,6 +17,8 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.zip.ZipEntry;
@@ -35,6 +37,18 @@ public final class SteamClientProvisioner {
     private static final long MAX_UNPACKED_BYTES = 1024L * 1024L * 1024L;
     private static final long MAX_COMPAT_LIBRARY_BYTES = 4L * 1024L * 1024L;
     private static final int MAX_ENTRIES = 4096;
+    private static final long MAX_STEAM_UI_CHUNK_BYTES = 64L * 1024L * 1024L;
+
+    private static final String[] STEAM_UI_NETWORK_PATCH_OLD = {
+        "const t=(0,B.Dp)(\"System.Network.RegisterForDeviceChanges\");t&&SteamClient.System.Network.RegisterForDeviceChanges",
+        "(0,B.Dp)(\"System.Network.GetProxyInfo\")&&SteamClient.System.Network.GetProxyInfo()",
+        "(0,B.Dp)(\"System.Network.RegisterForConnectivityTestChanges\")&&SteamClient.System.Network.RegisterForConnectivityTestChanges"
+    };
+    private static final String[] STEAM_UI_NETWORK_PATCH_NEW = {
+        "const t=\"function\"==typeof SteamClient.System.Network.RegisterForDeviceChanges;t&&SteamClient.System.Network.RegisterForDeviceChanges",
+        "\"function\"==typeof SteamClient.System.Network.GetProxyInfo&&SteamClient.System.Network.GetProxyInfo()",
+        "\"function\"==typeof SteamClient.System.Network.RegisterForConnectivityTestChanges&&SteamClient.System.Network.RegisterForConnectivityTestChanges"
+    };
 
     private final Context context;
     private final SteamArm64Channel channel;
@@ -224,6 +238,79 @@ public final class SteamClientProvisioner {
         stageAsset(SYSV_SEM_SHIM_ASSET, SYSV_SEM_SHIM_RELATIVE_PATH, 0755,
             MAX_COMPAT_LIBRARY_BYTES);
         stageAsset(LSOF_ASSET, LSOF_RELATIVE_PATH, 0755, 64 * 1024);
+        ensureSteamUiNetworkCompatibility();
+    }
+
+    /**
+     * The ARM beta client currently calls optional Android network bridge
+     * methods without checking that the methods exist. Holo intentionally
+     * does not provide those Android-only bindings. Keep this compatibility
+     * edit narrow, idempotent, and fail closed when Valve changes the chunk
+     * shape so a new client is never silently launched unvalidated.
+     */
+    private void ensureSteamUiNetworkCompatibility() throws IOException {
+        File steamUi = new File(steamRoot, "steamui");
+        File[] chunks = steamUi.listFiles((directory, name) ->
+            name.endsWith(".js") && name.startsWith("chunk"));
+        if (chunks == null || chunks.length == 0) {
+            throw new IOException("Steam UI JavaScript chunks are missing");
+        }
+
+        File target = null;
+        String source = null;
+        for (File candidate : chunks) {
+            if (candidate.length() > MAX_STEAM_UI_CHUNK_BYTES) continue;
+            String text = readUtf8(candidate, MAX_STEAM_UI_CHUNK_BYTES);
+            boolean hasOld = false;
+            boolean hasNew = false;
+            for (String old : STEAM_UI_NETWORK_PATCH_OLD) hasOld |= text.contains(old);
+            for (String replacement : STEAM_UI_NETWORK_PATCH_NEW) hasNew |= text.contains(replacement);
+            if (hasOld || hasNew) {
+                if (target != null) {
+                    throw new IOException("multiple Steam UI network compatibility targets");
+                }
+                target = candidate;
+                source = text;
+            }
+        }
+        if (target == null || source == null) {
+            throw new IOException("Steam UI network compatibility target is unknown");
+        }
+
+        String patched = source;
+        boolean changed = false;
+        for (int i = 0; i < STEAM_UI_NETWORK_PATCH_OLD.length; i++) {
+            String old = STEAM_UI_NETWORK_PATCH_OLD[i];
+            String replacement = STEAM_UI_NETWORK_PATCH_NEW[i];
+            int oldCount = countOccurrences(patched, old);
+            int newCount = countOccurrences(patched, replacement);
+            if (oldCount == 1 && newCount == 0) {
+                patched = patched.replace(old, replacement);
+                changed = true;
+            }
+            else if (oldCount != 0 || newCount != 1) {
+                throw new IOException("unexpected Steam UI network compatibility shape: " + target.getName());
+            }
+        }
+        if (!changed) return;
+
+        File partial = new File(target.getPath() + ".partial");
+        if (partial.exists()) throw new IOException("refusing to reuse partial Steam UI compatibility patch");
+        try (java.io.OutputStream output = new BufferedOutputStream(new FileOutputStream(partial))) {
+            byte[] bytes = patched.getBytes(StandardCharsets.UTF_8);
+            output.write(bytes);
+        }
+        Files.move(partial.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private static int countOccurrences(String text, String needle) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = text.indexOf(needle, offset)) >= 0) {
+            count++;
+            offset += needle.length();
+        }
+        return count;
     }
 
     private void stageAsset(String assetName, String relativePath, int mode, long maxBytes)
@@ -391,13 +478,13 @@ public final class SteamClientProvisioner {
     }
 
     private static String readUtf8(File file, long maxBytes) throws IOException {
-        if (file.length() > maxBytes) throw new IOException("Steam client manifest is too large");
+        if (file.length() > maxBytes) throw new IOException("file is too large: " + file.getName());
         try (InputStream input = new BufferedInputStream(new FileInputStream(file))) {
             ByteArrayOutputStream output = new ByteArrayOutputStream((int)file.length());
             byte[] buffer = new byte[8192];
             int length;
             while ((length = input.read(buffer)) != -1) {
-                if (output.size() + length > maxBytes) throw new IOException("Steam client manifest is too large");
+                if (output.size() + length > maxBytes) throw new IOException("file is too large: " + file.getName());
                 output.write(buffer, 0, length);
             }
             return output.toString(StandardCharsets.UTF_8.name());

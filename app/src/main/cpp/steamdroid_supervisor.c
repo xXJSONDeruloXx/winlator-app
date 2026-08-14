@@ -1855,6 +1855,10 @@ static void native_steam_child(char **argv) {
         setenv("USER", "steam", 1) != 0 ||
         setenv("LOGNAME", "steam", 1) != 0 ||
         setenv("DISPLAY", ":0", 1) != 0 ||
+        /* Valve's ARM client uses SDL3 for its native input/display probe.
+         * The embedded session is X11-only; selecting the backend avoids SDL
+         * treating the absent Wayland session as the only viable video path. */
+        setenv("SDL_VIDEO_DRIVER", "x11", 1) != 0 ||
         /* Winlator exposes the native X11 server directly.  Do not advertise
          * a synthetic Gamescope/Wayland display: Steam uses the presence of
          * this variable to select a different compositor handoff, while the
@@ -2231,7 +2235,12 @@ static int mount_tmpfs_with_options(const char *target, const char *options) {
 }
 
 static int mount_tmpfs(const char *target) {
-    return mount_tmpfs_with_options(target, "mode=1777,size=64m");
+    // Chromium/CEF uses /dev/shm for browser IPC and offscreen shared
+    // surfaces. A 64 MiB mount leaves less than the minimum CEF budget once
+    // Steam's own shared objects are present, causing the SteamUI offscreen
+    // JS context to fail before CreateBrowser. Keep the mount private and
+    // bounded, but give the native ARM client enough headroom.
+    return mount_tmpfs_with_options(target, "mode=1777,size=512m");
 }
 
 static int prepare_guest_steam_directories(void) {

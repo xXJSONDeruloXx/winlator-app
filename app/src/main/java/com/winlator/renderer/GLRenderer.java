@@ -5,8 +5,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
-import android.util.Log;
-
 import androidx.core.graphics.ColorUtils;
 
 import com.winlator.R;
@@ -40,7 +38,6 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindowModificationListener, Pointer.OnPointerMotionListener {
-    private static final String TAG = "SteamDroid.GLRenderer";
     public final XServerView xServerView;
     private final XServer xServer;
     protected final VertexAttribute quadVertices = new VertexAttribute("position", 2);
@@ -61,7 +58,6 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
     private int cursorForeColor = 0x000000;
     private boolean screenOffsetYRelativeToCursor = false;
     private float magnifierZoom = 1.0f;
-    private boolean firstFrameLogged;
     protected short surfaceWidth;
     protected short surfaceHeight;
     public final EffectComposer effectComposer = new EffectComposer(this);
@@ -91,7 +87,6 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
     @Override
     public void onSurfaceCreated(GL10 gl, EGLConfig config) {
         GPUHelper.setGlobalEGLContext();
-        Log.i(TAG, "X11 renderer surface created");
 
         GLES20.glFrontFace(GLES20.GL_CCW);
         GLES20.glDisable(GLES20.GL_CULL_FACE);
@@ -110,16 +105,10 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
         surfaceHeight = (short)height;
         viewTransformation.update(width, height, xServer.screenInfo.width, xServer.screenInfo.height);
         viewportNeedsUpdate = true;
-        Log.i(TAG, "X11 renderer surface changed width=" + width + " height=" + height +
-            " screen=" + xServer.screenInfo.width + "x" + xServer.screenInfo.height);
     }
 
     @Override
     public void onDrawFrame(GL10 gl) {
-        if (!firstFrameLogged) {
-            firstFrameLogged = true;
-            Log.i(TAG, "X11 renderer first frame");
-        }
         if (toggleFullscreen) {
             fullscreen = !fullscreen;
             toggleFullscreen = false;
@@ -165,16 +154,12 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
 
     @Override
     public void onMapWindow(Window window) {
-        Log.i(TAG, "X11 window mapped id=" + window.id + " geometry=" +
-            window.getWidth() + "x" + window.getHeight() + " at=" +
-            window.getRootX() + "," + window.getRootY());
         xServerView.queueEvent(this::updateScene);
         xServerView.requestRender();
     }
 
     @Override
     public void onUnmapWindow(Window window) {
-        Log.i(TAG, "X11 window unmapped id=" + window.id);
         xServerView.queueEvent(this::updateScene);
         xServerView.requestRender();
     }

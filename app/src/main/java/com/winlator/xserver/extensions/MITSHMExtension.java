@@ -61,6 +61,11 @@ public class MITSHMExtension extends Extension {
             outputStream.writeShort((short)0);
             outputStream.writeShort((short)0);
             outputStream.writeByte((byte)0);
+            // xShmQueryVersionReply is a full 32-byte X11 reply. The
+            // version fields above occupy only the first 9 bytes after the
+            // generic reply header; preserve the remaining wire padding so
+            // later extension replies stay aligned on the connection.
+            outputStream.writePad(15);
         }
     }
 

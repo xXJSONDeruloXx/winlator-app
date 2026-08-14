@@ -2,7 +2,6 @@ package com.winlator.xserver.extensions;
 
 import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_SUCCESS;
 
-import android.util.Log;
 import android.util.SparseArray;
 
 import com.winlator.xconnector.XInputStream;
@@ -57,9 +56,8 @@ public final class RandRExtension extends Extension {
     private static final int MODE_ID = 0x71000003;
     private static final String OUTPUT_NAME = "Virtual-1";
 
-    // GetOutputInfo's generated fixed reply struct is 36 bytes, four bytes
-    // larger than the generic 32-byte X11 reply block. The length field
-    // includes those four bytes as well as the variable arrays below.
+    // X11 reply lengths count 4-byte units after the first 32 bytes of the
+    // reply, including any fixed RandR fields beyond that boundary.
     private static final int X11_REPLY_HEADER_BYTES = 32;
     private static final int OUTPUT_INFO_FIXED_BYTES = 36;
 
@@ -164,11 +162,7 @@ public final class RandRExtension extends Extension {
         requireWindow(windowId);
         String modeName = screen().toString();
         int paddedNameLength = (modeName.length() + 3) & ~3;
-        // The two reserved CARD32 words are part of the fixed 32-byte reply
-        // header; the length field starts counting after that header.
         int replyLength = (4 + 4 + 32 + paddedNameLength) / 4;
-        Log.d("SteamDroid.XServer.RandR", "GetScreenResources window=" + windowId +
-            " counts=1/1/1 name=" + modeName + " length=" + replyLength);
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -202,10 +196,10 @@ public final class RandRExtension extends Extension {
         outputStream.writeShort(screen.width);
         outputStream.writeShort((short)(screen.width + 40));
         outputStream.writeShort((short)(screen.width + 160));
+        outputStream.writeShort((short)0); // hskew
         outputStream.writeShort((short)0);
         outputStream.writeShort(screen.height);
         outputStream.writeShort((short)(screen.height + 5));
-        outputStream.writeShort((short)(screen.height + 45));
         outputStream.writeShort((short)modeName.length());
         outputStream.writeInt(0); // mode flags
     }
@@ -222,9 +216,6 @@ public final class RandRExtension extends Extension {
             + 4 // one mode
             + paddedNameLength;
         int replyLength = replyBytes / 4;
-        Log.d("SteamDroid.XServer.RandR", "GetOutputInfo output=0x" + Integer.toHexString(outputId) +
-            " crtc=0x" + Integer.toHexString(CRTC_ID) + " mode=0x" + Integer.toHexString(MODE_ID) +
-            " name=" + OUTPUT_NAME + " length=" + replyLength);
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -271,8 +262,6 @@ public final class RandRExtension extends Extension {
         requireCrtc(crtcId);
         inputStream.skip(4); // config timestamp
         ScreenInfo screen = screen();
-        Log.d("SteamDroid.XServer.RandR", "GetCrtcInfo crtc=0x" + Integer.toHexString(crtcId) +
-            " mode=0x" + Integer.toHexString(MODE_ID) + " size=" + screen + " length=2");
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -330,7 +319,7 @@ public final class RandRExtension extends Extension {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0);
             outputStream.writeShort(client.getSequenceNumber());
-            outputStream.writeInt(16); // fixed 96-byte reply
+            outputStream.writeInt(16); // fixed 96-byte reply is 64 bytes past header
             writeIdentityTransform(outputStream);
             outputStream.writeByte((byte)1); // hasTransforms
             outputStream.writeByte((byte)0);
@@ -356,7 +345,7 @@ public final class RandRExtension extends Extension {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0); // RR_ConfigSuccess
             outputStream.writeShort(client.getSequenceNumber());
-            outputStream.writeInt(1); // xRRGetPanningReply is 36 bytes
+            outputStream.writeInt(1); // fixed 36-byte reply is 4 bytes past header
             outputStream.writeInt(timestamp());
             outputStream.writeShort((short)0); // left
             outputStream.writeShort((short)0); // top
@@ -436,11 +425,6 @@ public final class RandRExtension extends Extension {
     public void handleRequest(XClient client, XInputStream inputStream, XOutputStream outputStream)
         throws IOException, XRequestError {
         int request = client.getRequestData();
-        if (request == GET_SCREEN_RESOURCES || request == GET_SCREEN_RESOURCES_CURRENT ||
-            request == GET_OUTPUT_INFO || request == GET_CRTC_INFO) {
-            Log.d("SteamDroid.XServer.RandR", "request fd=" + client.fd + " sequence=" +
-                (client.getSequenceNumber() & 0xffff) + " minor=" + request);
-        }
         switch (request) {
             case QUERY_VERSION:
                 queryVersion(client, inputStream, outputStream);

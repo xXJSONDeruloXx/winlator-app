@@ -1,12 +1,9 @@
 package com.winlator.xserver;
 
-import android.util.Log;
-
 import com.winlator.xconnector.ConnectedClient;
 import com.winlator.xconnector.ConnectionHandler;
 
 public class XClientConnectionHandler implements ConnectionHandler {
-    private static final String TAG = "SteamDroid.XServer";
     private final XServer xServer;
 
     public XClientConnectionHandler(XServer xServer) {
@@ -20,12 +17,10 @@ public class XClientConnectionHandler implements ConnectionHandler {
 
     @Override
     public void handleNewConnection(ConnectedClient client) {
-        Log.d(TAG, "X client connected fd=" + client.fd);
     }
 
     @Override
     public void handleConnectionShutdown(ConnectedClient client) {
-        Log.d(TAG, "X client disconnected fd=" + client.fd);
         XClient xClient = (XClient)client;
         xServer.releaseServerGrab(xClient);
         xClient.freeResources();

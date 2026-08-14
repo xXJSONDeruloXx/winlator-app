@@ -14,7 +14,10 @@ public class PixmapManager extends XResourceManager {
         // backing surface. Steam's bundled Gladio client asks XGetVisualInfo
         // for a 32-bit TrueColor visual before creating a 24-depth window on
         // that same 32-bpp surface; WindowManager handles that narrow case.
-        visual = new Visual(IDGenerator.generate(), true, 32, 24, 0xff0000, 0x00ff00, 0x0000ff);
+        // bits_per_rgb_value is the number of significant bits in each color
+        // channel, not the total RGB depth. Advertising 24 here makes the
+        // otherwise standard ARGB8888 visual malformed to X11 clients.
+        visual = new Visual(IDGenerator.generate(), true, 32, 8, 0xff0000, 0x00ff00, 0x0000ff);
         supportedVisuals = new Visual[]{visual, new Visual(IDGenerator.generate(), false, 1, 1, 0, 0, 0)};
 
         supportedPixmapFormats = new PixmapFormat[] {

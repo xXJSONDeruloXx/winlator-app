@@ -360,6 +360,7 @@ GLXContext* createGLXContext(int contextId, GLXContext* sharedContext) {
 
     GLXContext* context = calloc(1, sizeof(GLXContext));
     context->eglContext = eglContext;
+    context->renderMode = GL_RENDER;
     context->renderer.contextId = contextId;
     GLVertexArrayObject_setBound(&context->renderer.clientState, 0);
     GLClientState_init(&context->renderer.clientState, sharedContext ? &sharedContext->renderer.clientState : NULL);

@@ -162,16 +162,6 @@ public class XClientRequestHandler implements RequestHandler {
         client.generateSequenceNumber();
         client.setRequestData(requestData);
         client.setRequestLength(requestLength);
-        // Keep extension traffic available for protocol diagnosis without
-        // turning every ordinary X11 request into an unbounded log stream.
-        if (opcode < 0) {
-            Log.d(TAG, "X extension request fd=" + client.fd +
-                " sequence=" + (client.getSequenceNumber() & 0xffff) +
-                " major=" + (opcode & 0xff) +
-                " minor=" + (requestData & 0xff) +
-                " length=" + requestLength);
-        }
-
         try {
             if (opcode < 0) {
                 Extension extension = client.xServer.getExtension(opcode);

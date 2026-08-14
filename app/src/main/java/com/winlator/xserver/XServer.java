@@ -11,10 +11,12 @@ import com.winlator.xserver.extensions.GLXExtension;
 import com.winlator.xserver.extensions.MITSHMExtension;
 import com.winlator.xserver.extensions.PresentExtension;
 import com.winlator.xserver.extensions.RandRExtension;
+import com.winlator.xserver.extensions.RenderExtension;
 import com.winlator.xserver.extensions.SyncExtension;
 import com.winlator.xserver.extensions.XComposite;
 import com.winlator.xserver.extensions.XFixesExtension;
 import com.winlator.xserver.extensions.XInputExtension;
+import com.winlator.xserver.extensions.XTestExtension;
 
 import java.nio.charset.Charset;
 import java.util.EnumMap;
@@ -23,7 +25,7 @@ import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class XServer {
-    public enum Lockable {WINDOW_MANAGER, PIXMAP_MANAGER, DRAWABLE_MANAGER, GRAPHIC_CONTEXT_MANAGER, INPUT_DEVICE, CURSOR_MANAGER, SHMSEGMENT_MANAGER}
+    public enum Lockable {WINDOW_MANAGER, PIXMAP_MANAGER, DRAWABLE_MANAGER, GRAPHIC_CONTEXT_MANAGER, INPUT_DEVICE, CURSOR_MANAGER, SHMSEGMENT_MANAGER, PICTURE_MANAGER}
     public static final short VERSION = 11;
     public static final String VENDOR_NAME = "Elbrus Technologies, LLC";
     public static final Charset LATIN1_CHARSET = Charset.forName("latin1");
@@ -31,6 +33,7 @@ public class XServer {
     private final Extension[] extensions;
     public final ScreenInfo screenInfo;
     public final PixmapManager pixmapManager;
+    public final PictureManager pictureManager = new PictureManager();
     public final ResourceIDs resourceIDs = new ResourceIDs(128);
     public final GraphicsContextManager graphicsContextManager = new GraphicsContextManager();
     public final SelectionManager selectionManager;
@@ -289,7 +292,9 @@ public class XServer {
             new GLXExtension(this, opcode--),
             new XFixesExtension(this, opcode--),
             new RandRExtension(this, opcode--),
-            new XInputExtension(this, opcode--)
+            new XInputExtension(this, opcode--),
+            new RenderExtension(this, opcode--),
+            new XTestExtension(this, opcode--)
         };
     }
 

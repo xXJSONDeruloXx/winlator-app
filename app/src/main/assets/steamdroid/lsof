@@ -3,24 +3,26 @@
 # Steam uses lsof here to identify the loopback WebSocket NetworkService;
 # answer only that query from the visible process table and fail closed for
 # unrelated invocations because Holo does not ship a general lsof binary.
-case " $* " in
-    *" -i TCP@127.0.0.1:"*)
-        port=0
-        for arg do
-            case "$arg" in
-                TCP@127.0.0.1:*) port=${arg##*:} ;;
-            esac
-        done
-        ps -eo pid=,ppid=,args= | awk -v uid="$(id -u)" -v port="$port" '
-            /[/]steamrtarm64[/]steamwebhelper/ && /NetworkService/ {
-                print "p" $1
-                print "R" $2
-                print "u" uid
-                print "n127.0.0.1:" port "->127.0.0.1:27060"
-                found=1
-            }
-            END { if (!found) exit 1 }
-        '
+query=
+for arg do
+    case "$arg" in
+        TCP@127.0.0.1:*) query=$arg ;;
+        -iTCP@127.0.0.1:*) query=${arg#-i} ;;
+    esac
+done
+
+case "$query" in
+    TCP@127.0.0.1:*)
+        port=${query##*:}
+        uid=$(id -u) || exit 1
+        line=$(ps -eo pid=,ppid=,args= |
+            grep 'steamwebhelper.*NetworkService' |
+            head -n 1) || exit 1
+        [ -n "$line" ] || exit 1
+        set -f
+        set -- $line
+        printf 'p%s\nR%s\nu%s\nnlocalhost:%s->localhost:27060\n' \
+            "$1" "$2" "$uid" "$port"
         ;;
     *)
         exit 1

@@ -2319,8 +2319,23 @@ void gd_handle_glReleaseShaderCompiler(GLContext* context) {
 
 void gd_handle_glRenderMode(GLContext* context) {
     GLenum mode = ArrayBuffer_getInt(&context->inputBuffer);
+    GLint result = 0;
 
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glRenderMode");
+    /* The client-side GLX implementation waits synchronously for this
+     * response.  Selection and feedback rendering are not represented by
+     * Gladio's GLES renderer, but GL_RENDER is used by CEF during context
+     * setup.  Keep the mode bookkeeping per GLX context and report zero hit
+     * records, which is the correct result while already in GL_RENDER. */
+    if (context->glxContext) {
+        if (mode == GL_RENDER) {
+            context->glxContext->renderMode = mode;
+        }
+        else {
+            println("gladio: glRenderMode %x is unsupported", mode);
+        }
+    }
+
+    gl_send(context->clientRing, REQUEST_CODE_GL_RENDER_MODE, &result, sizeof(result));
 }
 
 void gd_handle_glRenderbufferStorage(GLContext* context) {

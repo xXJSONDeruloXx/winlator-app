@@ -3,7 +3,6 @@ package com.winlator.xserver.extensions;
 import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_ERROR;
 import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_SUCCESS;
 
-import android.util.Log;
 import android.util.SparseArray;
 import android.util.SparseLongArray;
 
@@ -29,7 +28,6 @@ import java.io.IOException;
 public class GLXExtension extends Extension {
     public static final byte MAJOR_VERSION = 1;
     public static final byte MINOR_VERSION = 4;
-    private static final String TAG = "SteamDroid.XServer.GLX";
     private static final byte DEFAULT_FBCONFIG_ID = 1;
     private final SparseArray<SparseLongArray> clientGLXContexts = new SparseArray<>();
     private final SparseArray<SparseLongArray> clientGLContexts = new SparseArray<>();
@@ -116,12 +114,7 @@ public class GLXExtension extends Extension {
             }
 
             long sharedContextPtr = shareContextId > 0 ? contexts.get(shareContextId) : 0;
-            Log.d(TAG, "CreateGLXContext sequence=" + (client.getSequenceNumber() & 0xffff) +
-                " context=" + contextId + " share=" + shareContextId +
-                " share_ptr=0x" + Long.toHexString(sharedContextPtr));
             long context = createGLXContext(contextId, sharedContextPtr);
-            Log.d(TAG, "CreateGLXContext result context=" + contextId +
-                " ptr=0x" + Long.toHexString(context));
             if (context == 0) throw new BadAlloc();
             contexts.put(contextId, context);
         }
@@ -162,9 +155,6 @@ public class GLXExtension extends Extension {
         // The renderer ring uses the GLX context id as its context tag; the
         // drawable is supplied in the subsequent set-current ring command.
         int contextTag = contextId;
-        Log.d(TAG, "MakeCurrent sequence=" + (client.getSequenceNumber() & 0xffff) +
-            " drawable=" + drawableId + " context=" + contextId +
-            " old_tag=" + oldContextTag + " tag=" + contextTag);
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0);
@@ -183,8 +173,6 @@ public class GLXExtension extends Extension {
             if (contexts == null) throw new GLXBadContext();
 
             long context = contexts.get(contextId);
-            Log.d(TAG, "DestroyGLXContext sequence=" + (client.getSequenceNumber() & 0xffff) +
-                " context=" + contextId + " ptr=0x" + Long.toHexString(context));
             if (context == 0) throw new GLXBadContext();
 
             /*
@@ -200,18 +188,12 @@ public class GLXExtension extends Extension {
              * teardown.  The retained contexts are bounded by this X client
              * and are released by destroyAllGLXContexts().
              */
-            Log.d(TAG, "Deferring DestroyGLXContext context=" + contextId +
-                " until X client disconnect");
         }
     }
 
     private void queryVersion(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         int requestedMajor = inputStream.readInt();
         int requestedMinor = inputStream.readInt();
-        Log.d(TAG, "QueryVersion sequence=" + (client.getSequenceNumber() & 0xffff) +
-            " requested=" + requestedMajor + "." + requestedMinor +
-            " reply=" + MAJOR_VERSION + "." + MINOR_VERSION);
-
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0);
@@ -239,7 +221,6 @@ public class GLXExtension extends Extension {
     private void getVisualConfigs(XClient client, XInputStream inputStream, XOutputStream outputStream)
         throws IOException {
         inputStream.readInt();
-        Log.d(TAG, "GetVisualConfigs sequence=" + (client.getSequenceNumber() & 0xffff));
         // GLX 1.2's legacy visual query is still used by loaders before they
         // ask for the newer FBConfig path. These first 18 values are the
         // legacy __GLXvisualConfig fields, not tagged GLX attributes: visual
@@ -316,8 +297,6 @@ public class GLXExtension extends Extension {
 
     private void getFBConfigs(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         inputStream.skip(4);
-        Log.d(TAG, "GetFBConfigs sequence=" + (client.getSequenceNumber() & 0xffff) +
-            " visual=" + xServer.pixmapManager.visual.id);
 
         final int numFBConfigs = 1;
         // Keep this list explicit and complete enough for Mesa's
@@ -387,8 +366,6 @@ public class GLXExtension extends Extension {
         // Winlator's embedded renderer has no GLX drawable attributes beyond
         // the X window itself. Return a valid zero-attribute reply rather
         // than the BadImplementation error that makes Steam's updater abort.
-        Log.d(TAG, "GetDrawableAttributes sequence=" + (client.getSequenceNumber() & 0xffff) +
-            " drawable=" + drawableId);
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0);
@@ -426,9 +403,6 @@ public class GLXExtension extends Extension {
         boolean coreProfile = profileMask == GLXEnums.GLX_CONTEXT_CORE_PROFILE_BIT_ARB;
         boolean supportedProfile = profileMask == 0 || esProfile || coreProfile;
         boolean success = supportedProfile && glMajorVersion <= 3 && glMinorVersion <= 3;
-        Log.d(TAG, "CreateContextAttribsARB sequence=" + (client.getSequenceNumber() & 0xffff) +
-            " fbconfig=" + fbConfigId + " version=" + glMajorVersion + "." + glMinorVersion +
-            " profile=0x" + Integer.toHexString(profileMask) + " success=" + success);
         if (success) {
             createGLXContextForClient(client, contextId, shareContext);
         }

@@ -25,6 +25,15 @@ public class CursorManager extends XResourceManager {
         return cursor;
     }
 
+    public Cursor createCursorFromPicture(int id, short x, short y, Picture picture) {
+        if (cursors.indexOfKey(id) >= 0) return null;
+        Drawable drawable = drawableManager.createDrawable(0, (short)1, (short)1, picture.drawable.visual);
+        Cursor cursor = new Cursor(id, x, y, drawable, null, null);
+        cursors.put(id, cursor);
+        triggerOnCreateResourceListener(cursor);
+        return cursor;
+    }
+
     public void freeCursor(int id) {
         triggerOnFreeResourceListener(cursors.get(id));
         cursors.remove(id);
