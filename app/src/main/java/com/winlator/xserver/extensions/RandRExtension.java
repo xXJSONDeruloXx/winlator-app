@@ -45,6 +45,7 @@ public final class RandRExtension extends Extension {
     private static final int GET_CRTC_GAMMA_SIZE = 22;
     private static final int GET_CRTC_GAMMA = 23;
     private static final int SET_CRTC_GAMMA = 24;
+    private static final int GET_CRTC_TRANSFORM = 27;
     private static final int GET_SCREEN_RESOURCES_CURRENT = 25;
     private static final int SET_OUTPUT_PRIMARY = 30;
     private static final int GET_OUTPUT_PRIMARY = 31;
@@ -190,7 +191,6 @@ public final class RandRExtension extends Extension {
         outputStream.writeShort(screen.height);
         outputStream.writeShort((short)(screen.height + 5));
         outputStream.writeShort((short)(screen.height + 45));
-        outputStream.writeShort((short)0);
         outputStream.writeShort((short)modeName.length());
         outputStream.writeInt(0); // mode flags
     }
@@ -200,11 +200,11 @@ public final class RandRExtension extends Extension {
         requireOutput(inputStream.readInt());
         inputStream.skip(4); // config timestamp
         int nameLength = OUTPUT_NAME.length();
-        // The fixed reply fields extend four bytes beyond the 32-byte X11
-        // reply header. Add the one CRTC ID, one 32-byte mode record, and
-        // the padded output name emitted below.
+        // The fixed reply structure is 36 bytes, so four bytes of it count
+        // toward the length field beyond X11's first 32-byte reply block.
+        // Add the one CRTC ID, one mode ID, and the padded output name.
         int paddedNameLength = (nameLength + 3) & ~3;
-        int replyLength = (4 + 4 + 32 + paddedNameLength) / 4;
+        int replyLength = (4 + 4 + 4 + paddedNameLength) / 4;
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -296,6 +296,40 @@ public final class RandRExtension extends Extension {
         }
     }
 
+    private void getCrtcTransform(XClient client, XInputStream inputStream, XOutputStream outputStream)
+        throws IOException, XRequestError {
+        requireCrtc(inputStream.readInt());
+
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(16); // fixed 96-byte reply
+            writeIdentityTransform(outputStream);
+            outputStream.writeByte((byte)1); // hasTransforms
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort((short)0);
+            writeIdentityTransform(outputStream);
+            outputStream.writeInt(0);
+            outputStream.writeShort((short)0); // pending filter bytes
+            outputStream.writeShort((short)0); // pending filter params
+            outputStream.writeShort((short)0); // current filter bytes
+            outputStream.writeShort((short)0); // current filter params
+        }
+    }
+
+    private void writeIdentityTransform(XOutputStream outputStream) {
+        outputStream.writeInt(0x00010000);
+        outputStream.writeInt(0);
+        outputStream.writeInt(0);
+        outputStream.writeInt(0);
+        outputStream.writeInt(0x00010000);
+        outputStream.writeInt(0);
+        outputStream.writeInt(0);
+        outputStream.writeInt(0);
+        outputStream.writeInt(0x00010000);
+    }
+
     private void selectInput(XClient client, XInputStream inputStream, XOutputStream outputStream)
         throws XRequestError {
         int windowId = inputStream.readInt();
@@ -374,6 +408,9 @@ public final class RandRExtension extends Extension {
                 break;
             case GET_CRTC_GAMMA:
                 getCrtcGamma(client, inputStream, outputStream);
+                break;
+            case GET_CRTC_TRANSFORM:
+                getCrtcTransform(client, inputStream, outputStream);
                 break;
             case SELECT_INPUT:
                 selectInput(client, inputStream, outputStream);

@@ -173,7 +173,8 @@ public class SteamSessionService extends Service {
             byte[] payload = SteamNativeExecRequest.encode(Arrays.asList(
                 "/usr/bin/dbus-run-session", "--", steamExecutable,
                 "-gamepadui", "-steamos3", "-steampal", "-steamdeck",
-                "-no-cef-sandbox"
+                "-no-cef-sandbox", "-cef-disable-gpu",
+                "-chromeosnopreallocate", "-noverifyfiles"
                 // Allow the native client to perform its normal bootstrapper
                 // handoff and persistent update checks before entering the
                 // SteamUI/gamepad client.

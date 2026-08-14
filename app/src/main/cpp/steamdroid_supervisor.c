@@ -1509,6 +1509,12 @@ static void native_steam_child(char **argv) {
         setenv("XDG_RUNTIME_DIR", runtime_directory, 1) != 0 ||
         setenv("PATH", "/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/bin:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/bin:/usr/bin:/bin", 1) != 0 ||
         setenv("LD_LIBRARY_PATH", "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:/usr/lib:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu/pulseaudio:/lib", 1) != 0 ||
+        setenv("VK_DRIVER_FILES", "/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json", 1) != 0 ||
+        setenv("LIBGL_DRIVERS_PATH", "/usr/lib/dri", 1) != 0 ||
+        setenv("MESA_LOADER_DRIVER_OVERRIDE", "kgsl", 1) != 0 ||
+        setenv("TU_DEBUG", "noconform", 1) != 0 ||
+        setenv("MESA_VK_WSI_PRESENT_MODE", "mailbox", 1) != 0 ||
+        setenv("LIBGL_KOPPER_DISABLE", "true", 1) != 0 ||
         setenv("LD_PRELOAD", "/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so", 1) != 0 ||
         setenv("TMPDIR", "/tmp", 1) != 0 ||
         setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1) != 0 ||
