@@ -16,7 +16,7 @@ import java.nio.charset.StandardCharsets;
 /** Stages Winlator's GLX client for the embedded XServerCore GLX endpoint. */
 public final class SteamGladioProvisioner {
     private static final String GLADIO_ASSET = "graphics_driver/gladio-1.0.tzst";
-    private static final String GLADIO_BUILD_ID = "gladio-steamdroid-glx-lazy-init-fbconfig-bounds";
+    private static final String GLADIO_BUILD_ID = "gladio-steamdroid-glx-lazy-init-fbconfig-bounds-fd0-all-socket-copies";
     private static final String GLADIO_BUILD_MARKER = ".steamdroid-build";
     private static final String GLX_COMPAT_LIBRARY = "libsteamdroid_glx_compat.so";
     private static final byte[] GLADIO_LEGACY_X11_SOCKET =
@@ -170,18 +170,30 @@ public final class SteamGladioProvisioner {
                 throw new IOException("unsupported Gladio X11 socket path");
             }
 
-            file.seek(legacyOffset);
-            file.write(GLADIO_GUEST_X11_SOCKET);
-            for (int i = GLADIO_GUEST_X11_SOCKET.length; i < GLADIO_LEGACY_X11_SOCKET.length; i++) {
-                file.write(0);
+            // The compiler may emit more than one copy of the macro literal
+            // (for example, one for the socket address and one for logging).
+            // Patch every validated copy so the connection path cannot remain
+            // pointed at Winlator's host namespace.
+            while (legacyOffset >= 0) {
+                file.seek(legacyOffset);
+                file.write(GLADIO_GUEST_X11_SOCKET);
+                for (int i = GLADIO_GUEST_X11_SOCKET.length; i < GLADIO_LEGACY_X11_SOCKET.length; i++) {
+                    file.write(0);
+                }
+                legacyOffset = findBytes(image, GLADIO_LEGACY_X11_SOCKET,
+                    legacyOffset + GLADIO_LEGACY_X11_SOCKET.length);
             }
             file.getFD().sync();
         }
     }
 
     private static int findBytes(byte[] haystack, byte[] needle) {
+        return findBytes(haystack, needle, 0);
+    }
+
+    private static int findBytes(byte[] haystack, byte[] needle, int startOffset) {
         if (needle.length == 0 || needle.length > haystack.length) return -1;
-        for (int offset = 0; offset <= haystack.length - needle.length; offset++) {
+        for (int offset = Math.max(0, startOffset); offset <= haystack.length - needle.length; offset++) {
             boolean match = true;
             for (int index = 0; index < needle.length; index++) {
                 if (haystack[offset + index] != needle[index]) {
