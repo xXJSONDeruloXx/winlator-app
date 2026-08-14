@@ -20,6 +20,7 @@ import com.winlator.runtime.SteamHoloPackageProvisioner;
 import com.winlator.runtime.SteamArm64Channel;
 import com.winlator.runtime.SteamClientProvisioner;
 import com.winlator.runtime.SteamKgslProviderProvisioner;
+import com.winlator.runtime.SteamGladioProvisioner;
 import com.winlator.runtime.SteamIdentity;
 import com.winlator.runtime.SteamNativeExecRequest;
 import com.winlator.runtime.SteamNativeSubstrate;
@@ -171,6 +172,8 @@ public class SteamSessionService extends Service {
             SteamClientProvisioner provisioner = new SteamClientProvisioner(this);
             if (!provisioner.isInstalled()) throw new IOException("native ARM64 Steam client is not installed");
             provisioner.ensureCompatibilityAssets();
+            File gladioLibrary = new SteamGladioProvisioner(this).ensureInstalled();
+            Log.i(TAG, "embedded GLX client ready: " + gladioLibrary);
             new SteamKgslProviderProvisioner(this).ensureInstalled();
             ensureSessionPrepared();
             SteamArm64Channel channel = SteamArm64Channel.load(this);

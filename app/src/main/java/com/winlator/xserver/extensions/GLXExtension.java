@@ -212,10 +212,10 @@ public class GLXExtension extends Extension {
         // GLX 1.2's legacy visual query is still used by loaders before they
         // ask for the newer FBConfig path. These first 18 values are the
         // legacy __GLXvisualConfig fields, not tagged GLX attributes: visual
-        // ID, X visual class, RGBA, channel sizes, accumulation sizes,
+        // ID, GLX visual type, RGBA, channel sizes, accumulation sizes,
         // buffering, rgb/depth/stencil sizes, aux buffers, and level.
         int[] properties = new int[]{
-            xServer.pixmapManager.visual.id, 4, 1,
+            xServer.pixmapManager.visual.id, GLXEnums.GLX_TRUE_COLOR, 1,
             8, 8, 8, 8,
             0, 0, 0, 0,
             1, 0,

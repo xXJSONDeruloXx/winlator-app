@@ -1671,6 +1671,7 @@ static void native_steam_child(char **argv) {
     char runtime_platform[PATH_MAX];
     char runtime_path[PATH_MAX * 2];
     char runtime_library_path[PATH_MAX * 5];
+    char runtime_preload[PATH_MAX * 2];
     const char *runtime_root = "/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64";
     int runtime_platform_status = find_steam_runtime_platform(
         runtime_root, runtime_platform, sizeof(runtime_platform));
@@ -1696,20 +1697,62 @@ static void native_steam_child(char **argv) {
                           "/home/steam/.local/share/Steam/steamdroid/bin:%s/bin:/usr/bin:/bin",
                           runtime_root);
     if (length <= 0 || (size_t)length >= sizeof(runtime_path)) _exit(126);
+    int library_length = 0;
+    int preload_length = 0;
     if (runtime_platform_status == 0) {
         length = snprintf(runtime_path, sizeof(runtime_path),
                           "/home/steam/.local/share/Steam/steamdroid/bin:%s/bin:%s/bin:/usr/bin:/bin",
                           runtime_root, runtime_platform);
         if (length <= 0 || (size_t)length >= sizeof(runtime_path)) _exit(126);
-        length = snprintf(runtime_library_path, sizeof(runtime_library_path),
-                          "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:%s:%s:/usr/lib:/lib",
+        library_length = snprintf(runtime_library_path, sizeof(runtime_library_path),
+                          "/usr/lib:/lib:/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:%s:%s",
                           runtime_files_lib, runtime_pulse_lib);
+
+        /*
+         * The client SDL3 ABI comes from steamrtarm64, but GL/X11 must be a
+         * single Holo provider set.  Letting the Steam Runtime sidecar win
+         * globally mixes its X client libraries with Holo's XServerCore and
+         * leaves GLX without the matching Mesa/X11 symbols.  Holo is first in
+         * the search path for that reason; SDL3 is absent from Holo and still
+         * resolves from the native ARM client below it.
+         *
+         * Steam's ARM client also probes a GTK3-only symbol while bringing up
+         * its web UI.  Preload the real GTK3 library from the discovered
+         * SteamRT3C platform, never an app-created compatibility shim.  Keep
+         * Holo's libstdc++ ahead of the sidecar so Holo Mesa's C++ ABI remains
+         * coherent with the selected GL provider.
+         */
+        char runtime_gtk3[PATH_MAX];
+        length = snprintf(runtime_gtk3, sizeof(runtime_gtk3),
+                          "%s/libgtk-3.so.0", runtime_files_lib);
+        if (length <= 0 || (size_t)length >= sizeof(runtime_gtk3)) _exit(126);
+        const char *gladio_library = "/opt/steamdroid-gladio/usr/lib/libGL.so.1.7.0";
+        if (access(gladio_library, R_OK) == 0 &&
+            access(runtime_gtk3, R_OK) == 0 &&
+            access("/usr/lib/libstdc++.so.6", R_OK) == 0) {
+            preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
+                              "%s:/usr/lib/libstdc++.so.6:%s:/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
+                              gladio_library, runtime_gtk3);
+        }
+        else if (access(runtime_gtk3, R_OK) == 0 &&
+                 access("/usr/lib/libstdc++.so.6", R_OK) == 0) {
+            preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
+                              "/usr/lib/libstdc++.so.6:%s:/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
+                              runtime_gtk3);
+        }
+        else {
+            preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
+                              "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so");
+        }
     }
     else {
-        length = snprintf(runtime_library_path, sizeof(runtime_library_path),
-                          "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:/usr/lib:/lib");
+        library_length = snprintf(runtime_library_path, sizeof(runtime_library_path),
+                          "/usr/lib:/lib:/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs");
+        preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
+                          "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so");
     }
-    if (length <= 0 || (size_t)length >= sizeof(runtime_library_path)) _exit(126);
+    if (library_length <= 0 || (size_t)library_length >= sizeof(runtime_library_path) ||
+        preload_length <= 0 || (size_t)preload_length >= sizeof(runtime_preload)) _exit(126);
     dprintf(STDERR_FILENO, "steamdroid: client runtime platform=%s status=%d\n",
             runtime_platform_status == 0 ? runtime_platform : "absent",
             runtime_platform_status);
@@ -1748,11 +1791,10 @@ static void native_steam_child(char **argv) {
         setenv("STEAM_LAUNCH_WRAPPER_SCOPE", "0", 1) != 0 ||
         setenv("STEAM_LAUNCH_WRAPPER_JOURNAL", "0", 1) != 0 ||
         setenv("STEAM_LAUNCH_WRAPPER_AUDIO_NAMESPACE", "0", 1) != 0 ||
-        /* The native ARM client needs Holo's XRandR client ABI to resolve its
-         * output probe; XServerCore remains the owner of the protocol side.
-         * Keep the preload scoped to the Holo ABI and the Android SysV
-         * semaphore shim rather than inheriting arbitrary app libraries. */
-        setenv("LD_PRELOAD", "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so", 1) != 0 ||
+        /* XRandR and the SysV semaphore shim are always scoped to the native
+         * Steam process tree. When SteamRT3C is installed, runtime_preload
+         * additionally pins the validated GTK3/Holo libstdc++ combination. */
+        setenv("LD_PRELOAD", runtime_preload, 1) != 0 ||
         /* Chromium's ProcessSingleton creates its private socket directory
          * below TMPDIR. Android app-data filesystems can reject that
          * operation, while the session-private /run tmpfs has normal Unix
