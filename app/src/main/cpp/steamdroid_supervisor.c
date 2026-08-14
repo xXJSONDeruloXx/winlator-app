@@ -1612,6 +1612,58 @@ static int find_steam_runtime_platform(const char *runtime_root,
     return result;
 }
 
+static int find_versioned_library(const char *library_directory,
+                                  const char *library_prefix,
+                                  char *library_path,
+                                  size_t library_path_capacity) {
+    DIR *directory = opendir(library_directory);
+    if (directory == NULL) return -errno;
+
+    struct dirent *entry;
+    char selected[PATH_MAX] = {0};
+    while ((entry = readdir(directory)) != NULL) {
+        if (entry->d_name[0] == '.' ||
+            strncmp(entry->d_name, library_prefix, strlen(library_prefix)) != 0) {
+            continue;
+        }
+        char candidate[PATH_MAX];
+        int length = snprintf(candidate, sizeof(candidate), "%s/%s",
+                              library_directory, entry->d_name);
+        if (length <= 0 || (size_t)length >= sizeof(candidate)) continue;
+        struct stat candidate_stat;
+        if (stat(candidate, &candidate_stat) != 0 || !S_ISREG(candidate_stat.st_mode) ||
+            access(candidate, R_OK) != 0) {
+            continue;
+        }
+        if (selected[0] == '\0' || strcmp(entry->d_name, strrchr(selected, '/') + 1) > 0) {
+            memcpy(selected, candidate, (size_t)length + 1);
+        }
+    }
+    closedir(directory);
+    if (selected[0] == '\0') return -ENOENT;
+    size_t selected_length = strlen(selected);
+    if (selected_length >= library_path_capacity) return -ENAMETOOLONG;
+    memcpy(library_path, selected, selected_length + 1);
+    return 0;
+}
+
+static int ensure_private_symlink(const char *link_path, const char *target_path) {
+    struct stat link_stat;
+    if (lstat(link_path, &link_stat) == 0) {
+        if (!S_ISLNK(link_stat.st_mode)) return -EEXIST;
+        char existing_target[PATH_MAX];
+        ssize_t length = readlink(link_path, existing_target, sizeof(existing_target) - 1);
+        if (length < 0) return -errno;
+        existing_target[length] = '\0';
+        if (strcmp(existing_target, target_path) == 0) return 0;
+        if (unlink(link_path) != 0) return -errno;
+    } else if (errno != ENOENT) {
+        return -errno;
+    }
+    if (symlink(target_path, link_path) != 0) return -errno;
+    return 0;
+}
+
 static void native_steam_child(char **argv) {
     if (holo_root_path == NULL || chroot(holo_root_path) != 0 ||
         chdir("/home/steam/.local/share/Steam") != 0) _exit(126);
@@ -1670,11 +1722,19 @@ static void native_steam_child(char **argv) {
      */
     char runtime_platform[PATH_MAX];
     char runtime_path[PATH_MAX * 2];
-    char runtime_library_path[PATH_MAX * 5];
+    char runtime_library_path[PATH_MAX * 6];
     char runtime_preload[PATH_MAX * 2];
     const char *runtime_root = "/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64";
+    const char *runtime4_root =
+        "/home/steam/.local/share/Steam/steamapps/common/SteamLinuxRuntime_4-arm64";
     int runtime_platform_status = find_steam_runtime_platform(
         runtime_root, runtime_platform, sizeof(runtime_platform));
+    char runtime4_platform[PATH_MAX];
+    char runtime4_files_lib[PATH_MAX];
+    char runtime4_sdl2_library[PATH_MAX];
+    int runtime4_platform_status = find_steam_runtime_platform(
+        runtime4_root, runtime4_platform, sizeof(runtime4_platform));
+    int runtime4_sdl2_status = -ENOENT;
     char runtime_files_bin[PATH_MAX];
     char runtime_files_lib[PATH_MAX];
     char runtime_pulse_lib[PATH_MAX];
@@ -1693,6 +1753,24 @@ static void native_steam_child(char **argv) {
             runtime_platform_status = -ENOENT;
         }
     }
+    if (runtime4_platform_status == 0) {
+        int runtime4_length = snprintf(runtime4_files_lib, sizeof(runtime4_files_lib),
+                                       "%s/lib/aarch64-linux-gnu", runtime4_platform);
+        if (runtime4_length <= 0 || (size_t)runtime4_length >= sizeof(runtime4_files_lib) ||
+            access(runtime4_files_lib, R_OK | X_OK) != 0) {
+            runtime4_platform_status = -ENOENT;
+        }
+    }
+    if (runtime4_platform_status == 0) {
+        runtime4_sdl2_status = find_versioned_library(
+            runtime4_files_lib, "libSDL2-2.0.so.0.", runtime4_sdl2_library,
+            sizeof(runtime4_sdl2_library));
+        if (runtime4_sdl2_status == 0) {
+            runtime4_sdl2_status = ensure_private_symlink(
+                "/opt/steamdroid-gladio/usr/lib/libSDL2-2.0.so.0",
+                runtime4_sdl2_library);
+        }
+    }
     int length = snprintf(runtime_path, sizeof(runtime_path),
                           "/home/steam/.local/share/Steam/steamdroid/bin:%s/bin:/usr/bin:/bin",
                           runtime_root);
@@ -1704,9 +1782,15 @@ static void native_steam_child(char **argv) {
                           "/home/steam/.local/share/Steam/steamdroid/bin:%s/bin:%s/bin:/usr/bin:/bin",
                           runtime_root, runtime_platform);
         if (length <= 0 || (size_t)length >= sizeof(runtime_path)) _exit(126);
-        library_length = snprintf(runtime_library_path, sizeof(runtime_library_path),
-                          "/usr/lib:/lib:/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:%s:%s",
-                          runtime_files_lib, runtime_pulse_lib);
+        if (runtime4_platform_status == 0) {
+            library_length = snprintf(runtime_library_path, sizeof(runtime_library_path),
+                              "/opt/steamdroid-gladio/usr/lib:/usr/lib:/lib:/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:%s:%s:%s",
+                              runtime_files_lib, runtime_pulse_lib, runtime4_files_lib);
+        } else {
+            library_length = snprintf(runtime_library_path, sizeof(runtime_library_path),
+                              "/opt/steamdroid-gladio/usr/lib:/usr/lib:/lib:/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:%s:%s",
+                              runtime_files_lib, runtime_pulse_lib);
+        }
 
         /*
          * The client SDL3 ABI comes from steamrtarm64, but GL/X11 must be a
@@ -1727,14 +1811,12 @@ static void native_steam_child(char **argv) {
                           "%s/libgtk-3.so.0", runtime_files_lib);
         if (length <= 0 || (size_t)length >= sizeof(runtime_gtk3)) _exit(126);
         const char *glx_compat_library = "/opt/steamdroid-gladio/usr/lib/libsteamdroid_glx_compat.so";
-        const char *gladio_library = "/opt/steamdroid-gladio/usr/lib/libGL.so.1.7.0";
         if (access(glx_compat_library, R_OK) == 0 &&
-            access(gladio_library, R_OK) == 0 &&
             access(runtime_gtk3, R_OK) == 0 &&
             access("/usr/lib/libstdc++.so.6", R_OK) == 0) {
             preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
-                              "%s:%s:/usr/lib/libstdc++.so.6:%s:/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
-                              glx_compat_library, gladio_library, runtime_gtk3);
+                              "%s:/usr/lib/libstdc++.so.6:%s:/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
+                              glx_compat_library, runtime_gtk3);
         }
         else if (access(runtime_gtk3, R_OK) == 0 &&
                  access("/usr/lib/libstdc++.so.6", R_OK) == 0) {
@@ -1748,16 +1830,25 @@ static void native_steam_child(char **argv) {
         }
     }
     else {
-        library_length = snprintf(runtime_library_path, sizeof(runtime_library_path),
-                          "/usr/lib:/lib:/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs");
+        if (runtime4_platform_status == 0) {
+            library_length = snprintf(runtime_library_path, sizeof(runtime_library_path),
+                              "/opt/steamdroid-gladio/usr/lib:/usr/lib:/lib:/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:%s",
+                              runtime4_files_lib);
+        } else {
+            library_length = snprintf(runtime_library_path, sizeof(runtime_library_path),
+                              "/opt/steamdroid-gladio/usr/lib:/usr/lib:/lib:/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs");
+        }
         preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
                           "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so");
     }
     if (library_length <= 0 || (size_t)library_length >= sizeof(runtime_library_path) ||
         preload_length <= 0 || (size_t)preload_length >= sizeof(runtime_preload)) _exit(126);
-    dprintf(STDERR_FILENO, "steamdroid: client runtime platform=%s status=%d\n",
+    dprintf(STDERR_FILENO, "steamdroid: client runtime platform=%s status=%d runtime4=%s status=%d sdl2_alias=%d\n",
             runtime_platform_status == 0 ? runtime_platform : "absent",
-            runtime_platform_status);
+            runtime_platform_status,
+            runtime4_platform_status == 0 ? runtime4_platform : "absent",
+            runtime4_platform_status,
+            runtime4_sdl2_status);
 
     clearenv();
     if (setenv("HOME", "/home/steam", 1) != 0 ||

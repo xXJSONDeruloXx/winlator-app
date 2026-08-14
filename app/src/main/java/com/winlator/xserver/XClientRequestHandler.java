@@ -446,6 +446,12 @@ public class XClientRequestHandler implements RequestHandler {
                             KeyboardRequests.getKeyboardMapping(client, inputStream, outputStream);
                         }
                         break;
+                    case ClientOpcodes.CHANGE_KEYBOARD_CONTROL:
+                        // Keyboard repeat/bell policy is owned by Android. This
+                        // no-reply core request still has to consume its body
+                        // so the X client remains synchronized.
+                        client.skipRequest();
+                        break;
                     case ClientOpcodes.BELL:
                         client.skipRequest();
                         break;
