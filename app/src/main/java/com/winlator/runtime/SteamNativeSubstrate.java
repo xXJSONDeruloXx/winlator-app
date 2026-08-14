@@ -16,8 +16,11 @@ import com.winlator.xenvironment.components.XServerComponent;
 import com.winlator.xserver.XServerCore;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.net.InetAddress;
@@ -54,6 +57,7 @@ public final class SteamNativeSubstrate {
             identity = SteamIdentity.capture();
             identity.writeGuestIdentityViews(rootDir);
             writeGuestResolverConfig();
+            writeGuestProcNetShadow();
         }
         catch (IOException e) {
             throw new IllegalStateException("unable to provision dynamic guest identity", e);
@@ -142,6 +146,45 @@ public final class SteamNativeSubstrate {
         }
         if (!resolver.setReadable(true, false)) {
             throw new IOException("unable to make guest resolver configuration readable");
+        }
+    }
+
+    /**
+     * Android exposes the route tables to the app, but the private Holo proc
+     * mount must not expose the host procfs wholesale. Keep the two read-only
+     * route snapshots Steam and its compatibility tools use for interface
+     * discovery, then bind them into the guest's /proc/net during session
+     * preparation.
+     */
+    private void writeGuestProcNetShadow() throws IOException {
+        File directory = new File(rootDir, "tmp/proc-net");
+        if (!directory.isDirectory() && !directory.mkdirs()) {
+            throw new IOException("unable to create guest proc-net shadow");
+        }
+        copyVirtualFile("/proc/net/route", new File(directory, "route"));
+        copyVirtualFile("/proc/net/ipv6_route", new File(directory, "ipv6_route"));
+    }
+
+    private static void copyVirtualFile(String sourcePath, File target) throws IOException {
+        File partial = new File(target.getPath() + ".partial");
+        try (InputStream input = new FileInputStream(sourcePath);
+             OutputStream output = new FileOutputStream(partial)) {
+            byte[] buffer = new byte[8192];
+            int length;
+            while ((length = input.read(buffer)) != -1) {
+                output.write(buffer, 0, length);
+            }
+        }
+        if (target.isFile() && !target.delete()) {
+            partial.delete();
+            throw new IOException("unable to replace guest proc-net file: " + target);
+        }
+        if (!partial.renameTo(target)) {
+            partial.delete();
+            throw new IOException("unable to commit guest proc-net file: " + target);
+        }
+        if (!target.setReadable(true, false)) {
+            throw new IOException("unable to make guest proc-net file readable: " + target);
         }
     }
 

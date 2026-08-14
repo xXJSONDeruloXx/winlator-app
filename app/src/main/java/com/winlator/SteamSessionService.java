@@ -192,6 +192,16 @@ public class SteamSessionService extends Service {
             // re-entering file verification during a UI handoff.
             steamArguments.add("-chromeosnopreallocate");
             steamArguments.add("-noverifyfiles");
+            // Once Valve's bootstrapper has committed its own installed
+            // marker, do not make every later session wait for the updater
+            // child before SteamUI can be handed off. The first launch still
+            // follows the normal bootstrap path and must not receive these
+            // post-bootstrap controls prematurely.
+            if (provisioner.hasCompletedBootstrap()) {
+                steamArguments.add("-nobootstrapperupdate");
+                steamArguments.add("-skipinitialbootstrap");
+                steamArguments.add("-no-child-update-ui");
+            }
             byte[] payload = SteamNativeExecRequest.encode(steamArguments);
             SteamControlClient.Response response = controlClient.request(
                 SteamControlProtocol.EXEC_NATIVE_STEAM, payload);

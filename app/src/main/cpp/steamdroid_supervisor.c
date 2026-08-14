@@ -1569,6 +1569,44 @@ static int run_steam_with_private_dbus(char **steam_argv) {
     return 126;
 }
 
+/*
+ * The client-side ARM runtime is a separately versioned SteamRT3C payload.
+ * Valve can update its platform directory independently of the native ARM
+ * client and of Runtime 4, so do not bake a snapshot name into the launch
+ * environment.  The provisioner owns the runtime root; this lookup only
+ * selects the single installed platform directory below it.
+ */
+static int find_steam_runtime_platform(const char *runtime_root,
+                                       char *platform,
+                                       size_t platform_capacity) {
+    DIR *directory = opendir(runtime_root);
+    if (directory == NULL) return -errno;
+
+    struct dirent *entry;
+    int result = -ENOENT;
+    while ((entry = readdir(directory)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+        char candidate[PATH_MAX];
+        int length = snprintf(candidate, sizeof(candidate), "%s/%s/files",
+                              runtime_root, entry->d_name);
+        if (length <= 0 || (size_t)length >= sizeof(candidate)) continue;
+        struct stat candidate_stat;
+        if (stat(candidate, &candidate_stat) != 0 || !S_ISDIR(candidate_stat.st_mode)) {
+            continue;
+        }
+        if (access(candidate, R_OK | X_OK) != 0) continue;
+        if ((size_t)length >= platform_capacity) {
+            result = -ENAMETOOLONG;
+            break;
+        }
+        memcpy(platform, candidate, (size_t)length + 1);
+        result = 0;
+        break;
+    }
+    closedir(directory);
+    return result;
+}
+
 static void native_steam_child(char **argv) {
     if (holo_root_path == NULL || chroot(holo_root_path) != 0 ||
         chdir("/home/steam/.local/share/Steam") != 0) _exit(126);
@@ -1612,7 +1650,10 @@ static void native_steam_child(char **argv) {
         chown("/home/steam/.cache", (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
         chown("/home/steam/.cache/mesa_shader_cache", (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
         chmod("/home/steam/.cache", 0700) != 0 ||
-        chmod("/home/steam/.cache/mesa_shader_cache", 0700) != 0) _exit(126);
+        chmod("/home/steam/.cache/mesa_shader_cache", 0700) != 0 ||
+        make_directory_path("/tmp/dumps") != 0 ||
+        chown("/tmp/dumps", (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
+        chmod("/tmp/dumps", 0700) != 0) _exit(126);
 
     /*
      * Keep the native ARM client launch environment equivalent to the
@@ -1622,6 +1663,52 @@ static void native_steam_child(char **argv) {
      * Steam later (Runtime 4); retaining them in the path is intentional and
      * lets the same supervisor work before and after tool installation.
      */
+    char runtime_platform[PATH_MAX];
+    char runtime_path[PATH_MAX * 2];
+    char runtime_library_path[PATH_MAX * 5];
+    const char *runtime_root = "/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64";
+    int runtime_platform_status = find_steam_runtime_platform(
+        runtime_root, runtime_platform, sizeof(runtime_platform));
+    char runtime_files_bin[PATH_MAX];
+    char runtime_files_lib[PATH_MAX];
+    char runtime_pulse_lib[PATH_MAX];
+    if (runtime_platform_status == 0) {
+        int length = snprintf(runtime_files_bin, sizeof(runtime_files_bin),
+                              "%s/bin", runtime_platform);
+        if (length <= 0 || (size_t)length >= sizeof(runtime_files_bin)) _exit(126);
+        length = snprintf(runtime_files_lib, sizeof(runtime_files_lib),
+                          "%s/lib/aarch64-linux-gnu", runtime_platform);
+        if (length <= 0 || (size_t)length >= sizeof(runtime_files_lib)) _exit(126);
+        length = snprintf(runtime_pulse_lib, sizeof(runtime_pulse_lib),
+                          "%s/pulseaudio", runtime_files_lib);
+        if (length <= 0 || (size_t)length >= sizeof(runtime_pulse_lib)) _exit(126);
+        if (access(runtime_files_bin, R_OK | X_OK) != 0 ||
+            access(runtime_files_lib, R_OK | X_OK) != 0) {
+            runtime_platform_status = -ENOENT;
+        }
+    }
+    int length = snprintf(runtime_path, sizeof(runtime_path),
+                          "/home/steam/.local/share/Steam/steamdroid/bin:%s/bin:/usr/bin:/bin",
+                          runtime_root);
+    if (length <= 0 || (size_t)length >= sizeof(runtime_path)) _exit(126);
+    if (runtime_platform_status == 0) {
+        length = snprintf(runtime_path, sizeof(runtime_path),
+                          "/home/steam/.local/share/Steam/steamdroid/bin:%s/bin:%s/bin:/usr/bin:/bin",
+                          runtime_root, runtime_platform);
+        if (length <= 0 || (size_t)length >= sizeof(runtime_path)) _exit(126);
+        length = snprintf(runtime_library_path, sizeof(runtime_library_path),
+                          "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:/usr/lib:%s:%s:/lib",
+                          runtime_files_lib, runtime_pulse_lib);
+    }
+    else {
+        length = snprintf(runtime_library_path, sizeof(runtime_library_path),
+                          "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:/usr/lib:/lib");
+    }
+    if (length <= 0 || (size_t)length >= sizeof(runtime_library_path)) _exit(126);
+    dprintf(STDERR_FILENO, "steamdroid: client runtime platform=%s status=%d\n",
+            runtime_platform_status == 0 ? runtime_platform : "absent",
+            runtime_platform_status);
+
     clearenv();
     if (setenv("HOME", "/home/steam", 1) != 0 ||
         setenv("USER", "steam", 1) != 0 ||
@@ -1636,8 +1723,8 @@ static void native_steam_child(char **argv) {
         setenv("XDG_RUNTIME_DIR", runtime_directory, 1) != 0 ||
         setenv("XDG_CACHE_HOME", "/home/steam/.cache", 1) != 0 ||
         setenv("MESA_SHADER_CACHE_DIR", "/home/steam/.cache/mesa_shader_cache", 1) != 0 ||
-        setenv("PATH", "/home/steam/.local/share/Steam/steamdroid/bin:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/bin:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/bin:/usr/bin:/bin", 1) != 0 ||
-        setenv("LD_LIBRARY_PATH", "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:/usr/lib:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu/pulseaudio:/lib", 1) != 0 ||
+        setenv("PATH", runtime_path, 1) != 0 ||
+        setenv("LD_LIBRARY_PATH", runtime_library_path, 1) != 0 ||
         /* Holo's packaged Mesa is built for the msm DRM backend. Thor exposes
          * the Android KGSL device, so select the separately provisioned
          * glibc Turnip/KGSL provider when it is present. The descriptor is
@@ -2006,6 +2093,25 @@ static int mount_tmpfs(const char *target) {
     return mount_tmpfs_with_options(target, "mode=1777,size=64m");
 }
 
+static int prepare_guest_steam_directories(void) {
+    if (holo_root_path == NULL || expected_uid < 0 || expected_gid < 0) return -EINVAL;
+
+    const char *relative_paths[] = {
+        "/home/steam/.local/share/Steam/steamapps",
+        "/home/steam/.local/share/Steam/steamapps/common",
+        "/home/steam/.local/share/Steam/steamapps/common/SteamLinuxRuntime_4-arm64",
+    };
+    for (size_t index = 0; index < sizeof(relative_paths) / sizeof(relative_paths[0]); index++) {
+        char path[PATH_MAX];
+        int length = snprintf(path, sizeof(path), "%s%s", holo_root_path, relative_paths[index]);
+        if (length <= 0 || (size_t)length >= sizeof(path)) return -ENAMETOOLONG;
+        if (make_directory_path(path) != 0 ||
+            chown(path, (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
+            chmod(path, 0755) != 0) return -errno;
+    }
+    return 0;
+}
+
 static int wait_for_path(const char *path, pid_t child) {
     for (int attempt = 0; attempt < 100; attempt++) {
         struct stat path_stat;
@@ -2071,14 +2177,16 @@ static int prepare_holo_mounts(void) {
 
     char source[PATH_MAX];
     char target[PATH_MAX];
+    int status = prepare_guest_steam_directories();
+    if (status != 0) return status;
     /*
      * Holo is a real chroot, so it needs the host device and sysfs trees for
      * /dev/null, input, DRM/KGSL and the Vulkan provider. Keep these binds
      * inside this supervisor's private mount namespace and make them
      * recursive so device submounts remain visible to the guest.
-     */
+    */
     snprintf(target, sizeof(target), "%s/dev", holo_root_path);
-    int status = bind_mount("/dev", target);
+    status = bind_mount("/dev", target);
     if (status != 0) return status;
     snprintf(target, sizeof(target), "%s/dev/shm", holo_root_path);
     status = mount_tmpfs(target);
@@ -2144,7 +2252,16 @@ static int prepare_holo_mounts(void) {
     }
 
     snprintf(target, sizeof(target), "%s/proc", holo_root_path);
-    return mount_proc(target);
+    status = mount_proc(target);
+    if (status != 0) return status;
+
+    /* Steam's network discovery reads only these route tables. Bind the
+     * Android-generated shadow after mounting the private procfs so the guest
+     * receives validated route metadata without exposing the host /proc/net.
+     */
+    snprintf(source, sizeof(source), "%s/tmp/proc-net", substrate_root_path);
+    snprintf(target, sizeof(target), "%s/proc/net", holo_root_path);
+    return bind_mount(source, target);
 }
 
 static void unmount_holo_mounts(void) {
