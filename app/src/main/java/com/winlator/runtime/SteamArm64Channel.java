@@ -31,6 +31,9 @@ public final class SteamArm64Channel {
     public final int protonArm64DepotId;
     public final int runtimeArm64AppId;
     public final int runtimeArm64DepotId;
+    public final String kgslDriverMesaRef;
+    public final String kgslDriverSha256;
+    public final long kgslDriverBytes;
     public final long freeSpaceReserveBytes;
 
     private SteamArm64Channel(Map<String, String> values) throws IOException {
@@ -54,6 +57,12 @@ public final class SteamArm64Channel {
         protonArm64DepotId = (int)number(values, "protonArm64DepotId");
         runtimeArm64AppId = (int)number(values, "runtimeArm64AppId");
         runtimeArm64DepotId = (int)number(values, "runtimeArm64DepotId");
+        kgslDriverMesaRef = required(values, "kgslDriverMesaRef");
+        kgslDriverSha256 = required(values, "kgslDriverSha256").toLowerCase();
+        if (!kgslDriverSha256.matches("[0-9a-f]{64}")) {
+            throw new IOException("invalid KGSL driver SHA-256");
+        }
+        kgslDriverBytes = number(values, "kgslDriverBytes");
         freeSpaceReserveBytes = number(values, "freeSpaceReserveBytes");
     }
 

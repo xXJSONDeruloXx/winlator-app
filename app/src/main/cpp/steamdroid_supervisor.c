@@ -1590,7 +1590,11 @@ static void native_steam_child(char **argv) {
     }
     if (null_fd != STDIN_FILENO) close(null_fd);
     char runtime_directory[64];
-    snprintf(runtime_directory, sizeof(runtime_directory), "/run/user/%d", expected_uid);
+    /* The validated ARM launcher uses a session-private /tmp runtime
+     * directory. Steam's IPC and helper discovery treat it differently from
+     * the conventional /run/user/<uid> path when the client is hosted inside
+     * the Holo chroot. */
+    snprintf(runtime_directory, sizeof(runtime_directory), "/tmp/steam-runtime");
     if (make_directory_path(runtime_directory) != 0 ||
         chown(runtime_directory, (uid_t)expected_uid, (gid_t)expected_gid) != 0 ||
         chmod(runtime_directory, 0700) != 0 ||
@@ -1632,17 +1636,28 @@ static void native_steam_child(char **argv) {
         setenv("MESA_SHADER_CACHE_DIR", "/home/steam/.cache/mesa_shader_cache", 1) != 0 ||
         setenv("PATH", "/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/bin:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/bin:/usr/bin:/bin", 1) != 0 ||
         setenv("LD_LIBRARY_PATH", "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:/usr/lib:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu/pulseaudio:/lib", 1) != 0 ||
-        setenv("VK_DRIVER_FILES", "/usr/share/vulkan/icd.d/freedreno_icd.aarch64.json", 1) != 0 ||
+        /* Holo's packaged Mesa is built for the msm DRM backend. Thor exposes
+         * the Android KGSL device, so select the separately provisioned
+         * glibc Turnip/KGSL provider when it is present. The descriptor is
+         * inside the immutable Holo session root and is never taken from
+         * shared storage or the Android process environment. */
+        setenv("VK_DRIVER_FILES", "/opt/steamdroid-kgsl-driver/freedreno-kgsl.icd.json", 1) != 0 ||
         setenv("LIBGL_DRIVERS_PATH", "/usr/lib/dri", 1) != 0 ||
-        setenv("MESA_LOADER_DRIVER_OVERRIDE", "swrast", 1) != 0 ||
-        setenv("GALLIUM_DRIVER", "softpipe", 1) != 0 ||
-        setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1) != 0 ||
+        /* Thor's Holo Mesa package exposes the native Turnip path through
+         * kgsl_dri.so. CEF remains software-disabled by its command-line
+         * switch, but Steam's own GPU topology probe must see the real ARM
+         * provider or the client stops before starting steamwebhelper. */
+        setenv("MESA_LOADER_DRIVER_OVERRIDE", "kgsl", 1) != 0 ||
         setenv("TU_DEBUG", "noconform", 1) != 0 ||
         setenv("MESA_VK_WSI_PRESENT_MODE", "mailbox", 1) != 0 ||
         setenv("LIBGL_KOPPER_DISABLE", "true", 1) != 0 ||
         setenv("STEAM_LAUNCH_WRAPPER_SCOPE", "0", 1) != 0 ||
         setenv("STEAM_LAUNCH_WRAPPER_JOURNAL", "0", 1) != 0 ||
         setenv("STEAM_LAUNCH_WRAPPER_AUDIO_NAMESPACE", "0", 1) != 0 ||
+        /* Steam's ARM client still requires the ordinary XRandR client ABI;
+         * the embedded server supplies the protocol implementation. Keep the
+         * semaphore shim alongside it for Android's missing SysV semaphore
+         * syscalls. */
         setenv("LD_PRELOAD", "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so", 1) != 0 ||
         /* Chromium's ProcessSingleton creates its private socket directory
          * below TMPDIR. Android app-data filesystems can reject that

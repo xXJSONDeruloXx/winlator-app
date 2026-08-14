@@ -168,9 +168,11 @@ public final class RandRExtension extends Extension {
             outputStream.writeShort((short)1); // outputs
             outputStream.writeShort((short)1); // modes
             outputStream.writeShort((short)modeName.length());
-            outputStream.writeInt(0);
-            outputStream.writeInt(0);
-
+            // xRRGetScreenResourcesReply reserves two CARD32 words before
+            // the CRTC, output, and mode arrays. Without this padding the
+            // client reads the arrays at the wrong offsets and concludes
+            // that the connected RandR output has no usable modes.
+            outputStream.writePad(8);
             outputStream.writeInt(CRTC_ID);
             outputStream.writeInt(OUTPUT_ID);
             writeModeInfo(outputStream, modeName);
@@ -208,15 +210,17 @@ public final class RandRExtension extends Extension {
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
-            outputStream.writeByte((byte)0); // connected
+            outputStream.writeByte((byte)0); // RR_Status_Success
             outputStream.writeShort(client.getSequenceNumber());
             outputStream.writeInt(replyLength);
             outputStream.writeInt(timestamp());
             outputStream.writeInt(CRTC_ID);
             outputStream.writeInt(screen().getWidthInMillimeters());
             outputStream.writeInt(screen().getHeightInMillimeters());
+            // RR_Connection_Connected is 1. Reporting Unknown (0) makes
+            // Chromium conclude that the X server has no usable displays.
+            outputStream.writeByte((byte)1); // connection
             outputStream.writeByte((byte)0); // subpixel unknown
-            outputStream.writeByte((byte)0);
             outputStream.writeShort((short)1); // nCrtcs
             outputStream.writeShort((short)1); // nModes
             outputStream.writeShort((short)1); // nPreferred

@@ -19,6 +19,7 @@ import com.winlator.runtime.SteamHoloProvisioner;
 import com.winlator.runtime.SteamHoloPackageProvisioner;
 import com.winlator.runtime.SteamArm64Channel;
 import com.winlator.runtime.SteamClientProvisioner;
+import com.winlator.runtime.SteamKgslProviderProvisioner;
 import com.winlator.runtime.SteamIdentity;
 import com.winlator.runtime.SteamNativeExecRequest;
 import com.winlator.runtime.SteamNativeSubstrate;
@@ -133,6 +134,7 @@ public class SteamSessionService extends Service {
             lastStatus = "downloading Holo X11/GPU ARM64 packages…";
             SteamHoloPackageProvisioner provisioner = new SteamHoloPackageProvisioner(this);
             provisioner.downloadAll();
+            new SteamKgslProviderProvisioner(this).ensureInstalled();
             ensureSessionPrepared();
             SteamControlClient.Response response = controlClient.request(
                 SteamControlProtocol.INSTALL_HOLO_PACKAGES);
@@ -169,20 +171,16 @@ public class SteamSessionService extends Service {
             SteamClientProvisioner provisioner = new SteamClientProvisioner(this);
             if (!provisioner.isInstalled()) throw new IOException("native ARM64 Steam client is not installed");
             provisioner.ensureCompatibilityAssets();
+            new SteamKgslProviderProvisioner(this).ensureInstalled();
             ensureSessionPrepared();
             SteamArm64Channel channel = SteamArm64Channel.load(this);
             String steamExecutable = "/home/steam/.local/share/Steam/" + channel.steamClientExecutable;
             List<String> steamArguments = new ArrayList<>(Arrays.asList(
-                "/usr/bin/dbus-run-session", "--", steamExecutable,
-                "-gamepadui", "-steamos3", "-steampal", "-steamdeck"));
-            if (provisioner.hasCompletedBootstrap()) {
-                // The first launch is allowed to update the seeded client.
-                // Every later launch must enter the persistent client directly
-                // or it remains in the updater UI and never starts CEF.
-                steamArguments.add("-nobootstrapperupdate");
-                steamArguments.add("-skipinitialbootstrap");
-                steamArguments.add("-no-child-update-ui");
-            }
+                "/usr/bin/dbus-run-session", "--", steamExecutable));
+            // Request the native ARM client's Big Picture path. These flags
+            // are interpreted by Steam itself; Winlator does not provide a
+            // replacement frontend or translated Windows process.
+            steamArguments.add("-gamepadui");
             steamArguments.add("-no-cef-sandbox");
             steamArguments.add("-cef-disable-gpu");
             // Match the validated ARM64 Steam launch profile used by the
