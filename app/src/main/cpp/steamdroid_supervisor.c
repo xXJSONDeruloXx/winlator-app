@@ -1480,6 +1480,93 @@ static int runtime_proxy_main(int argc, char **argv) {
     }
 }
 
+static int read_bus_address(int fd, char *address, size_t capacity) {
+    if (capacity < 2) return -EINVAL;
+    size_t length = 0;
+    while (length + 1 < capacity) {
+        char byte;
+        ssize_t count = read(fd, &byte, 1);
+        if (count == 0) break;
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            return -errno;
+        }
+        if (byte == '\n' || byte == '\r') {
+            if (length != 0) break;
+            continue;
+        }
+        address[length++] = byte;
+    }
+    address[length] = '\0';
+    return length > 0 ? 0 : -EIO;
+}
+
+static int run_steam_with_private_dbus(char **steam_argv) {
+    int address_pipe[2];
+    if (pipe(address_pipe) != 0) return -errno;
+
+    pid_t dbus_pid = fork();
+    if (dbus_pid < 0) {
+        int status = -errno;
+        close(address_pipe[0]);
+        close(address_pipe[1]);
+        return status;
+    }
+    if (dbus_pid == 0) {
+        close(address_pipe[0]);
+        if (dup2(address_pipe[1], STDOUT_FILENO) < 0) _exit(126);
+        if (address_pipe[1] != STDOUT_FILENO) close(address_pipe[1]);
+        prctl(PR_SET_PDEATHSIG, SIGTERM, 0L, 0L, 0L);
+        unsetenv("LD_PRELOAD");
+        execl("/usr/bin/dbus-daemon", "dbus-daemon", "--session", "--nofork",
+              "--print-address=1", (char *)NULL);
+        _exit(127);
+    }
+
+    close(address_pipe[1]);
+    char address[PATH_MAX];
+    int status = read_bus_address(address_pipe[0], address, sizeof(address));
+    close(address_pipe[0]);
+    if (status != 0) {
+        kill(dbus_pid, SIGTERM);
+        waitpid(dbus_pid, NULL, 0);
+        return status;
+    }
+    if (setenv("DBUS_SESSION_BUS_ADDRESS", address, 1) != 0) {
+        status = -errno;
+        kill(dbus_pid, SIGTERM);
+        waitpid(dbus_pid, NULL, 0);
+        return status;
+    }
+    dprintf(STDERR_FILENO, "steamdroid: private session dbus pid=%d address=%s\n",
+            dbus_pid, address);
+
+    pid_t steam_pid = fork();
+    if (steam_pid < 0) {
+        status = -errno;
+        kill(dbus_pid, SIGTERM);
+        waitpid(dbus_pid, NULL, 0);
+        return status;
+    }
+    if (steam_pid == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGTERM, 0L, 0L, 0L);
+        execv(steam_argv[0], steam_argv);
+        _exit(errno == ENOENT ? 127 : 126);
+    }
+
+    int steam_status;
+    do {
+        status = waitpid(steam_pid, &steam_status, 0);
+    } while (status < 0 && errno == EINTR);
+    if (status < 0) steam_status = 126 << 8;
+
+    kill(dbus_pid, SIGTERM);
+    while (waitpid(dbus_pid, NULL, 0) < 0 && errno == EINTR) {}
+    if (WIFEXITED(steam_status)) return WEXITSTATUS(steam_status);
+    if (WIFSIGNALED(steam_status)) return 128 + WTERMSIG(steam_status);
+    return 126;
+}
+
 static void native_steam_child(char **argv) {
     if (holo_root_path == NULL || chroot(holo_root_path) != 0 ||
         chdir("/home/steam/.local/share/Steam") != 0) _exit(126);
@@ -1580,6 +1667,17 @@ static void native_steam_child(char **argv) {
         dprintf(STDERR_FILENO, "steamdroid: /dev/null unavailable after identity drop: %s\n",
                 strerror(errno));
         _exit(126);
+    }
+    /*
+     * The public native-exec payload keeps the familiar dbus-run-session
+     * argv shape, but the actual session bus is created here so the daemon
+     * never inherits Steam's compatibility preload. Steam and all of its CEF
+     * descendants retain the preload after this wrapper restores the bus
+     * address and executes the requested command.
+     */
+    if (strcmp(argv[0], "/usr/bin/dbus-run-session") == 0 &&
+        argv[1] != NULL && strcmp(argv[1], "--") == 0 && argv[2] != NULL) {
+        _exit(run_steam_with_private_dbus(&argv[2]));
     }
     execv(argv[0], argv);
     _exit(errno == ENOENT ? 127 : 126);

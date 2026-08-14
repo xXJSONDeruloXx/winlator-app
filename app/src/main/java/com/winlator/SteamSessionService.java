@@ -35,6 +35,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Owns the long-lived SteamDroid session independently of an Activity. */
 public class SteamSessionService extends Service {
@@ -170,15 +172,20 @@ public class SteamSessionService extends Service {
             ensureSessionPrepared();
             SteamArm64Channel channel = SteamArm64Channel.load(this);
             String steamExecutable = "/home/steam/.local/share/Steam/" + channel.steamClientExecutable;
-            byte[] payload = SteamNativeExecRequest.encode(Arrays.asList(
+            List<String> steamArguments = new ArrayList<>(Arrays.asList(
                 "/usr/bin/dbus-run-session", "--", steamExecutable,
-                "-gamepadui", "-steamos3", "-steampal", "-steamdeck",
-                "-no-cef-sandbox", "-cef-disable-gpu",
-                "-chromeosnopreallocate", "-noverifyfiles"
-                // Allow the native client to perform its normal bootstrapper
-                // handoff and persistent update checks before entering the
-                // SteamUI/gamepad client.
-                ));
+                "-gamepadui", "-steamos3", "-steampal", "-steamdeck"));
+            if (provisioner.hasCompletedBootstrap()) {
+                // The first launch is allowed to update the seeded client.
+                // Every later launch must enter the persistent client directly
+                // or it remains in the updater UI and never starts CEF.
+                steamArguments.add("-nobootstrapperupdate");
+                steamArguments.add("-skipinitialbootstrap");
+                steamArguments.add("-no-child-update-ui");
+            }
+            steamArguments.add("-no-cef-sandbox");
+            steamArguments.add("-cef-disable-gpu");
+            byte[] payload = SteamNativeExecRequest.encode(steamArguments);
             SteamControlClient.Response response = controlClient.request(
                 SteamControlProtocol.EXEC_NATIVE_STEAM, payload);
             if (!response.isSuccess()) throw new IOException("native Steam launch status=" + response.status);

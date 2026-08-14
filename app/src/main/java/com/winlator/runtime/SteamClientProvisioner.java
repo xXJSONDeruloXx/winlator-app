@@ -58,6 +58,18 @@ public final class SteamClientProvisioner {
         return new File(holoRoot, "home/steam/.local/share/Steam/" + channel.steamClientExecutable);
     }
 
+    /**
+     * Valve writes a channel-specific marker after the bootstrapper has
+     * installed the live client. Keep the marker discovery generic because
+     * the public ARM64 endpoint and the installed beta marker do not
+     * necessarily use the same channel spelling.
+     */
+    public boolean hasCompletedBootstrap() {
+        File[] markers = new File(steamRoot, "package").listFiles((directory, name) ->
+            name.startsWith("steam_client_") && name.endsWith(".installed"));
+        return markers != null && markers.length > 0;
+    }
+
     public void downloadAndInstall(SteamIdentity identity) throws IOException {
         if (!new File(holoRoot, "usr/lib/ld-linux-aarch64.so.1").isFile()) {
             throw new IOException("Holo ARM64 rootfs is not installed");
