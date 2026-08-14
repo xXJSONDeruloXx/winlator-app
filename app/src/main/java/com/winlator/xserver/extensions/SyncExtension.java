@@ -2,6 +2,7 @@ package com.winlator.xserver.extensions;
 
 import android.util.SparseBooleanArray;
 import android.util.SparseLongArray;
+import android.util.SparseArray;
 
 import com.winlator.xconnector.XInputStream;
 import com.winlator.xconnector.XOutputStream;
@@ -22,8 +23,12 @@ public class SyncExtension extends Extension {
     public static final int MAJOR_VERSION = 3;
     public static final int MINOR_VERSION = 1;
     private final SparseLongArray counters = new SparseLongArray();
+    private final SparseArray<XClient> counterOwners = new SparseArray<>();
     private final SparseBooleanArray alarms = new SparseBooleanArray();
+    private final SparseArray<XClient> alarmOwners = new SparseArray<>();
     private final SparseBooleanArray fences = new SparseBooleanArray();
+    private final SparseArray<XClient> fenceOwners = new SparseArray<>();
+    private final java.util.HashSet<XClient> registeredClients = new java.util.HashSet<>();
 
     private static abstract class ClientOpcodes {
         private static final byte INITIALIZE = 0;
@@ -65,6 +70,53 @@ public class SyncExtension extends Extension {
         }
     }
 
+    /**
+     * SYNC resources use normal X client resource IDs. Keep their ownership
+     * here because they are not represented by the drawable resource
+     * managers, and release them when the owning connection disappears.
+     * Otherwise a crashed CEF/helper client can leave a counter behind and
+     * make the next Steam connection fail CreateCounter with BadIDChoice.
+     */
+    private void registerClient(XClient client) {
+        synchronized (registeredClients) {
+            if (!registeredClients.add(client)) return;
+            client.addOnDestroyListener(thisClient -> releaseClient(thisClient));
+        }
+    }
+
+    private void releaseClient(XClient client) {
+        synchronized (counters) {
+            for (int index = counters.size() - 1; index >= 0; index--) {
+                int id = counters.keyAt(index);
+                if (counterOwners.get(id) == client) {
+                    counters.removeAt(index);
+                    counterOwners.remove(id);
+                }
+            }
+        }
+        synchronized (alarms) {
+            for (int index = alarms.size() - 1; index >= 0; index--) {
+                int id = alarms.keyAt(index);
+                if (alarmOwners.get(id) == client) {
+                    alarms.delete(id);
+                    alarmOwners.remove(id);
+                }
+            }
+        }
+        synchronized (fences) {
+            for (int index = fences.size() - 1; index >= 0; index--) {
+                int id = fences.keyAt(index);
+                if (fenceOwners.get(id) == client) {
+                    fences.delete(id);
+                    fenceOwners.remove(id);
+                }
+            }
+        }
+        synchronized (registeredClients) {
+            registeredClients.remove(client);
+        }
+    }
+
     private void initialize(XClient client, XInputStream inputStream, XOutputStream outputStream)
         throws IOException {
         int requestedMajor = inputStream.readByte() & 0xff;
@@ -98,12 +150,16 @@ public class SyncExtension extends Extension {
         }
     }
 
-    private void createCounter(XInputStream inputStream) throws IOException, XRequestError {
+    private void createCounter(XClient client, XInputStream inputStream) throws IOException, XRequestError {
         synchronized (counters) {
             int id = inputStream.readInt();
             long value = inputStream.readLong();
-            if (counters.indexOfKey(id) >= 0) throw new BadIdChoice(id);
+            if (!client.isValidResourceId(id) || counters.indexOfKey(id) >= 0) {
+                throw new BadIdChoice(id);
+            }
+            registerClient(client);
             counters.put(id, value);
+            counterOwners.put(id, client);
         }
     }
 
@@ -112,18 +168,24 @@ public class SyncExtension extends Extension {
         return counters.get(id);
     }
 
-    private void setCounter(XInputStream inputStream) throws IOException, XRequestError {
+    private void requireCounterOwner(XClient client, int id) throws BadCounter {
+        requireCounter(id);
+        if (counterOwners.get(id) != client) throw new BadCounter(id);
+    }
+
+    private void setCounter(XClient client, XInputStream inputStream) throws IOException, XRequestError {
         synchronized (counters) {
             int id = inputStream.readInt();
-            requireCounter(id);
+            requireCounterOwner(client, id);
             counters.put(id, inputStream.readLong());
         }
     }
 
-    private void changeCounter(XInputStream inputStream) throws IOException, XRequestError {
+    private void changeCounter(XClient client, XInputStream inputStream) throws IOException, XRequestError {
         synchronized (counters) {
             int id = inputStream.readInt();
-            long current = requireCounter(id);
+            requireCounterOwner(client, id);
+            long current = counters.get(id);
             counters.put(id, current + inputStream.readLong());
         }
     }
@@ -132,7 +194,8 @@ public class SyncExtension extends Extension {
         throws IOException, XRequestError {
         synchronized (counters) {
             int id = inputStream.readInt();
-            long value = requireCounter(id);
+            requireCounterOwner(client, id);
+            long value = counters.get(id);
 
             try (XStreamLock lock = outputStream.lock()) {
                 outputStream.writeByte((byte)1);
@@ -149,8 +212,10 @@ public class SyncExtension extends Extension {
         throws IOException, XRequestError {
         synchronized (counters) {
             int id = inputStream.readInt();
-            long value = requireCounter(id);
+            requireCounterOwner(client, id);
+            long value = counters.get(id);
             counters.delete(id);
+            counterOwners.remove(id);
 
             try (XStreamLock lock = outputStream.lock()) {
                 outputStream.writeByte((byte)1);
@@ -172,30 +237,33 @@ public class SyncExtension extends Extension {
         if ((mask & 32) != 0) inputStream.skip(4); // events
     }
 
-    private void createAlarm(XInputStream inputStream) throws IOException, XRequestError {
+    private void createAlarm(XClient client, XInputStream inputStream) throws IOException, XRequestError {
         synchronized (alarms) {
             int id = inputStream.readInt();
             int mask = inputStream.readInt();
-            if (alarms.indexOfKey(id) >= 0) throw new BadIdChoice(id);
+            if (!client.isValidResourceId(id) || alarms.indexOfKey(id) >= 0) throw new BadIdChoice(id);
+            registerClient(client);
             skipAlarmValues(inputStream, mask);
             alarms.put(id, true);
+            alarmOwners.put(id, client);
         }
     }
 
-    private void changeAlarm(XInputStream inputStream) throws IOException, XRequestError {
+    private void changeAlarm(XClient client, XInputStream inputStream) throws IOException, XRequestError {
         synchronized (alarms) {
             int id = inputStream.readInt();
             int mask = inputStream.readInt();
-            if (alarms.indexOfKey(id) < 0) throw new BadAlarm(id);
+            if (alarms.indexOfKey(id) < 0 || alarmOwners.get(id) != client) throw new BadAlarm(id);
             skipAlarmValues(inputStream, mask);
         }
     }
 
-    private void destroyAlarm(XInputStream inputStream) throws IOException, XRequestError {
+    private void destroyAlarm(XClient client, XInputStream inputStream) throws IOException, XRequestError {
         synchronized (alarms) {
             int id = inputStream.readInt();
-            if (alarms.indexOfKey(id) < 0) throw new BadAlarm(id);
+            if (alarms.indexOfKey(id) < 0 || alarmOwners.get(id) != client) throw new BadAlarm(id);
             alarms.delete(id);
+            alarmOwners.remove(id);
         }
     }
 
@@ -204,19 +272,21 @@ public class SyncExtension extends Extension {
             inputStream.skip(4);
             int id = inputStream.readInt();
 
-            if (fences.indexOfKey(id) >= 0) throw new BadIdChoice(id);
+            if (!client.isValidResourceId(id) || fences.indexOfKey(id) >= 0) throw new BadIdChoice(id);
 
             boolean initiallyTriggered = inputStream.readByte() == 1;
             inputStream.skip(3);
 
+            registerClient(client);
             fences.put(id, initiallyTriggered);
+            fenceOwners.put(id, client);
         }
     }
 
     private void triggerFence(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         synchronized (fences) {
             int id = inputStream.readInt();
-            if (fences.indexOfKey(id) < 0) throw new BadFence(id);
+            if (fences.indexOfKey(id) < 0 || fenceOwners.get(id) != client) throw new BadFence(id);
             fences.put(id, true);
         }
     }
@@ -224,7 +294,7 @@ public class SyncExtension extends Extension {
     private void resetFence(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         synchronized (fences) {
             int id = inputStream.readInt();
-            if (fences.indexOfKey(id) < 0) throw new BadFence(id);
+            if (fences.indexOfKey(id) < 0 || fenceOwners.get(id) != client) throw new BadFence(id);
 
             boolean triggered = fences.get(id);
             if (!triggered) throw new BadMatch();
@@ -236,8 +306,9 @@ public class SyncExtension extends Extension {
     private void destroyFence(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         synchronized (fences) {
             int id = inputStream.readInt();
-            if (fences.indexOfKey(id) < 0) throw new BadFence(id);
+            if (fences.indexOfKey(id) < 0 || fenceOwners.get(id) != client) throw new BadFence(id);
             fences.delete(id);
+            fenceOwners.remove(id);
         }
     }
 
@@ -255,7 +326,9 @@ public class SyncExtension extends Extension {
             boolean anyTriggered = false;
             do {
                 for (int id : ids) {
-                    if (fences.indexOfKey(id) < 0) throw new BadFence(id);
+                    if (fences.indexOfKey(id) < 0 || fenceOwners.get(id) != client) {
+                        throw new BadFence(id);
+                    }
                     anyTriggered = fences.get(id);
                     if (anyTriggered) break;
                 }
@@ -277,13 +350,13 @@ public class SyncExtension extends Extension {
                 listSystemCounters(client, outputStream);
                 break;
             case ClientOpcodes.CREATE_COUNTER:
-                createCounter(inputStream);
+                createCounter(client, inputStream);
                 break;
             case ClientOpcodes.SET_COUNTER:
-                setCounter(inputStream);
+                setCounter(client, inputStream);
                 break;
             case ClientOpcodes.CHANGE_COUNTER:
-                changeCounter(inputStream);
+                changeCounter(client, inputStream);
                 break;
             case ClientOpcodes.QUERY_COUNTER:
                 queryCounter(client, inputStream, outputStream);
@@ -295,15 +368,15 @@ public class SyncExtension extends Extension {
                 inputStream.skip(client.getRemainingRequestLength());
                 break;
             case ClientOpcodes.CREATE_ALARM:
-                createAlarm(inputStream);
+                createAlarm(client, inputStream);
                 break;
             case ClientOpcodes.CHANGE_ALARM:
-                changeAlarm(inputStream);
+                changeAlarm(client, inputStream);
                 break;
             case ClientOpcodes.QUERY_ALARM:
                 throw new BadAlarm(inputStream.readInt());
             case ClientOpcodes.DESTROY_ALARM:
-                destroyAlarm(inputStream);
+                destroyAlarm(client, inputStream);
                 break;
             case ClientOpcodes.CREATE_FENCE :
                 createFence(client, inputStream, outputStream);

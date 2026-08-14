@@ -1,4 +1,7 @@
 #include <malloc.h>
+#include <errno.h>
+#include <poll.h>
+#include <stdbool.h>
 #include <string.h>
 #include <jni.h>
 #include <unistd.h>
@@ -42,20 +45,47 @@ static void XOutputStream_destroy(XOutputStream* outputStream) {
     MEMFREE(outputStream);
 }
 
+static bool writeAll(int fd, const void* data, int length) {
+    const char* cursor = data;
+    int remaining = length;
+    while (remaining > 0) {
+        ssize_t written = write(fd, cursor, (size_t)remaining);
+        if (written > 0) {
+            cursor += written;
+            remaining -= (int)written;
+            continue;
+        }
+        if (written < 0 && errno == EINTR) continue;
+        if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            struct pollfd pollFd = {.fd = fd, .events = POLLOUT};
+            if (poll(&pollFd, 1, -1) < 0 && errno != EINTR) return false;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 static jboolean XOutputStream_send(XOutputStream* outputStream) {
     if (outputStream->buffer.position == 0) return JNI_TRUE;
     outputStream->buffer.limit = outputStream->buffer.position;
     outputStream->buffer.position = 0;
 
-    int bytesSent;
+    bool success = true;
+    int bytesSent = 0;
     if (outputStream->ancillaryFd > 0) {
         bytesSent = send_fds(outputStream->fd, &outputStream->ancillaryFd, 1, outputStream->buffer.data, outputStream->buffer.limit);
         outputStream->ancillaryFd = 0;
+        if (bytesSent < 0) success = false;
     }
-    else bytesSent = write(outputStream->fd, outputStream->buffer.data, outputStream->buffer.limit);
+    if (success && bytesSent < outputStream->buffer.limit) {
+        success = writeAll(outputStream->fd,
+            outputStream->buffer.data + bytesSent,
+            outputStream->buffer.limit - bytesSent);
+    }
 
     outputStream->buffer.limit = outputStream->buffer.capacity;
-    return bytesSent >= 0 ? JNI_TRUE : JNI_FALSE;
+    return success ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jlong JNICALL

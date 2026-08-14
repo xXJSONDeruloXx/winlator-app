@@ -24,6 +24,7 @@ import com.winlator.xserver.XServerCore;
 public class SteamDroidActivity extends AppCompatActivity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView status;
+    private LinearLayout controls;
     private FrameLayout content;
     private XServerView xServerView;
     private SteamSessionService sessionService;
@@ -34,7 +35,6 @@ public class SteamDroidActivity extends AppCompatActivity {
         public void onServiceConnected(ComponentName name, IBinder binder) {
             sessionService = ((SteamSessionService.LocalBinder)binder).getService();
             serviceBound = true;
-            attachDisplay();
             updateStatus();
         }
 
@@ -52,7 +52,7 @@ public class SteamDroidActivity extends AppCompatActivity {
 
         content = new FrameLayout(this);
 
-        LinearLayout controls = new LinearLayout(this);
+        controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.VERTICAL);
         controls.setPadding(32, 32, 32, 32);
 
@@ -95,6 +95,10 @@ public class SteamDroidActivity extends AppCompatActivity {
         Button launchSteam = new Button(this);
         launchSteam.setText("Launch Steam Big Picture");
         launchSteam.setOnClickListener(view -> {
+            // Attach before asking the service to exec Steam so the renderer
+            // receives the first MapWindow events.
+            attachDisplay();
+            controls.setVisibility(ViewGroup.GONE);
             startService(new Intent(this, SteamSessionService.class).setAction(SteamSessionService.ACTION_LAUNCH_STEAM));
             status.setText("Launching Steam Big Picture…");
         });
@@ -130,26 +134,42 @@ public class SteamDroidActivity extends AppCompatActivity {
         if (sessionService == null || xServerView != null) return;
         XServerCore xServer = sessionService.getXServerCore();
         xServerView = new XServerView(this, xServer);
-        // Keep the Android control/status layer interactive once the
-        // GLSurfaceView's SurfaceView has been created. X11 content remains
-        // the visual background; Activity-owned controls stay above it.
-        xServerView.setZOrderMediaOverlay(true);
+        // Keep this SurfaceView behind the Android control layer until the
+        // native Steam launch is accepted. The controls are hidden from the
+        // status updater at that point, allowing the X11 surface to occupy
+        // the full Activity without losing the launch interaction when the
+        // SurfaceView is first created.
         xServer.setRenderer(xServerView.getRenderer());
         content.addView(xServerView, 0, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
     private void updateStatus() {
-        if (status != null && sessionService != null) status.setText(sessionService.getLastStatus());
+        if (status == null || sessionService == null) return;
+        String serviceStatus = sessionService.getLastStatus();
+        status.setText(serviceStatus);
+        if (serviceStatus.startsWith("native Steam process started:")) {
+            if (xServerView == null) attachDisplay();
+            controls.setVisibility(ViewGroup.GONE);
+        }
+        else if (serviceStatus.startsWith("session destroyed") ||
+            serviceStatus.startsWith("error:") || serviceStatus.startsWith("native Steam launch error:")) {
+            detachDisplay();
+            controls.setVisibility(ViewGroup.VISIBLE);
+        }
+    }
+
+    private void detachDisplay() {
+        if (xServerView == null || sessionService == null) return;
+        sessionService.getXServerCore().detachRenderer(xServerView.getRenderer());
+        content.removeView(xServerView);
+        xServerView = null;
     }
 
     @Override
     protected void onDestroy() {
         handler.removeCallbacks(statusUpdater);
-        if (xServerView != null && sessionService != null) {
-            sessionService.getXServerCore().detachRenderer(xServerView.getRenderer());
-            xServerView = null;
-        }
+        detachDisplay();
         if (serviceBound) {
             unbindService(serviceConnection);
             serviceBound = false;
