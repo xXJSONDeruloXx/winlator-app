@@ -57,6 +57,12 @@ public final class RandRExtension extends Extension {
     private static final int MODE_ID = 0x71000003;
     private static final String OUTPUT_NAME = "Virtual-1";
 
+    // GetOutputInfo's generated fixed reply struct is 36 bytes, four bytes
+    // larger than the generic 32-byte X11 reply block. The length field
+    // includes those four bytes as well as the variable arrays below.
+    private static final int X11_REPLY_HEADER_BYTES = 32;
+    private static final int OUTPUT_INFO_FIXED_BYTES = 36;
+
     private final SparseArray<Integer> inputSelections = new SparseArray<>();
 
     public RandRExtension(XServer xServer, byte majorOpcode) {
@@ -210,11 +216,12 @@ public final class RandRExtension extends Extension {
         requireOutput(outputId);
         inputStream.skip(4); // config timestamp
         int nameLength = OUTPUT_NAME.length();
-        // The fixed reply structure is exactly the 32-byte X11 reply block;
-        // length therefore covers only the variable CRTC, mode, clone and
-        // name arrays that follow it.
         int paddedNameLength = (nameLength + 3) & ~3;
-        int replyLength = (4 + 4 + paddedNameLength) / 4;
+        int replyBytes = OUTPUT_INFO_FIXED_BYTES - X11_REPLY_HEADER_BYTES
+            + 4 // one CRTC
+            + 4 // one mode
+            + paddedNameLength;
+        int replyLength = replyBytes / 4;
         Log.d("SteamDroid.XServer.RandR", "GetOutputInfo output=0x" + Integer.toHexString(outputId) +
             " crtc=0x" + Integer.toHexString(CRTC_ID) + " mode=0x" + Integer.toHexString(MODE_ID) +
             " name=" + OUTPUT_NAME + " length=" + replyLength);
