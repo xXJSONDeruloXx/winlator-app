@@ -264,8 +264,12 @@ public final class SteamClientProvisioner {
         createRelativeSymlink(dotSteam, "sdk32", "../.local/share/Steam/linux32");
         createRelativeSymlink(dotSteam, "sdk64", "../.local/share/Steam/linux64");
         createRelativeSymlink(dotSteam, "sdkarm64", "../.local/share/Steam/linuxarm64");
-        createRelativeSymlink(dotSteam, "bin32", "../.local/share/Steam/ubuntu12_32");
-        createRelativeSymlink(dotSteam, "bin64", "../.local/share/Steam/ubuntu12_64");
+        // The ARM client resolves its traditional bin links through the
+        // Steam Runtime trees. Pointing these at ubuntu12_* silently selects
+        // the legacy x86 CEF/helper payload and leaves the native ARM client
+        // with no usable SteamUI handoff.
+        createRelativeSymlink(dotSteam, "bin32", "../.local/share/Steam/steamrt32");
+        createRelativeSymlink(dotSteam, "bin64", "../.local/share/Steam/steamrt64");
         createRelativeSymlink(dotSteam, "steamrtarm64", "../.local/share/Steam/steamrtarm64");
         createRelativeSymlink(dotSteam, "steamrtarm32", "../.local/share/Steam/steamrtarm32");
         createRelativeSymlink(steamRoot, "steamrtarm32", "steamrtarm64");
@@ -328,7 +332,21 @@ public final class SteamClientProvisioner {
 
     private static void createRelativeSymlink(File parent, String name, String target) throws IOException {
         File link = new File(parent, name);
-        if (link.exists() || FileUtils.isSymlink(link)) return;
+        if (FileUtils.isSymlink(link)) {
+            try {
+                if (target.equals(Os.readlink(link.getPath()))) return;
+            }
+            catch (ErrnoException e) {
+                throw new IOException("unable to inspect Steam home symlink: " + name, e);
+            }
+            // These links are app-owned compatibility layout, not user
+            // content. Replace only the exact existing symlink; never remove
+            // a regular file or directory that Steam may have created.
+            if (!link.delete()) throw new IOException("unable to replace Steam home symlink: " + name);
+        }
+        else if (link.exists()) {
+            return;
+        }
         try {
             Os.symlink(target, link.getPath());
         }

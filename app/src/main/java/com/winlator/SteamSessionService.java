@@ -185,6 +185,12 @@ public class SteamSessionService extends Service {
             }
             steamArguments.add("-no-cef-sandbox");
             steamArguments.add("-cef-disable-gpu");
+            // Match the validated ARM64 Steam launch profile used by the
+            // sibling Termux:X11 harness. These avoid the slow client-side
+            // preallocation path and keep the already-provisioned client from
+            // re-entering file verification during a UI handoff.
+            steamArguments.add("-chromeosnopreallocate");
+            steamArguments.add("-noverifyfiles");
             byte[] payload = SteamNativeExecRequest.encode(steamArguments);
             SteamControlClient.Response response = controlClient.request(
                 SteamControlProtocol.EXEC_NATIVE_STEAM, payload);

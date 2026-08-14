@@ -1621,11 +1621,10 @@ static void native_steam_child(char **argv) {
         setenv("USER", "steam", 1) != 0 ||
         setenv("LOGNAME", "steam", 1) != 0 ||
         setenv("DISPLAY", ":0", 1) != 0 ||
-        /* Steam's ARM client uses this as the Gamescope/XRandR workaround
-         * switch.  Winlator exposes X11, not a Wayland Gamescope socket, but
-         * the non-empty value makes Steam return its safe dummy RandR output
-         * instead of dereferencing a NULL XRRGetOutputInfo result in GDK. */
-        setenv("GAMESCOPE_WAYLAND_DISPLAY", "steamdroid-x11", 1) != 0 ||
+        /* Winlator exposes the native X11 server directly.  Do not advertise
+         * a synthetic Gamescope/Wayland display: Steam uses the presence of
+         * this variable to select a different compositor handoff, while the
+         * actual surface is owned by XServerCore. */
         setenv("PULSE_SERVER", "unix:/tmp/.sound/PS0", 1) != 0 ||
         setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/run/dbus/system_bus_socket", 1) != 0 ||
         setenv("XDG_RUNTIME_DIR", runtime_directory, 1) != 0 ||
