@@ -48,6 +48,7 @@ extern char **environ;
 #define MAX_RUNTIME_STRING_BYTES (64u * 1024u)
 #define VALIDATED_RUNTIME_BWRAP_PATH \
     "/home/steam/.local/share/Steam/steamapps/common/SteamLinuxRuntime_4-arm64/pressure-vessel/libexec/steam-runtime-tools-0/srt-bwrap"
+#define BOOTSTRAP_RUNTIME_BWRAP_PATH "/usr/bin/bwrap"
 #define RUNTIME_BWRAP_FIXTURE_PATH "/usr/bin/steamdroid-bwrap-fixture"
 
 enum {
@@ -781,6 +782,7 @@ static int parse_fd_number(const char *value, int *number_out) {
 static int validated_runtime_bwrap_path(const char *path) {
     return path != NULL &&
         (strcmp(path, VALIDATED_RUNTIME_BWRAP_PATH) == 0 ||
+         strcmp(path, BOOTSTRAP_RUNTIME_BWRAP_PATH) == 0 ||
          strcmp(path, RUNTIME_BWRAP_FIXTURE_PATH) == 0);
 }
 
@@ -1668,9 +1670,14 @@ static void native_steam_child(char **argv) {
         setenv("LANG", "C.UTF-8", 1) != 0 ||
         setenv("LC_ALL", "C.UTF-8", 1) != 0 ||
         setenv("PRESSURE_VESSEL_BWRAP", "/usr/bin/steamdroid-bwrap-proxy", 1) != 0 ||
-        setenv("STEAMDROID_BWRAP_SOCKET", "/tmp/steamdroid-runtime-bwrap.sock", 1) != 0 ||
-        setenv("STEAMDROID_REAL_BWRAP",
-               "/home/steam/.local/share/Steam/steamapps/common/SteamLinuxRuntime_4-arm64/pressure-vessel/libexec/steam-runtime-tools-0/srt-bwrap", 1) != 0) _exit(126);
+        setenv("STEAMDROID_BWRAP_SOCKET", "/tmp/steamdroid-runtime-bwrap.sock", 1) != 0) _exit(126);
+    /* Steam needs a bwrap implementation before it has downloaded the
+     * ARM64 Runtime 4 tool that normally supplies srt-bwrap. Use Holo's
+     * native Bubblewrap only for that bootstrap window; after Runtime 4 is
+     * present, route the same proxy to its validated srt-bwrap. */
+    const char *runtime_bwrap = access(VALIDATED_RUNTIME_BWRAP_PATH, X_OK) == 0
+        ? VALIDATED_RUNTIME_BWRAP_PATH : BOOTSTRAP_RUNTIME_BWRAP_PATH;
+    if (setenv("STEAMDROID_REAL_BWRAP", runtime_bwrap, 1) != 0) _exit(126);
     int identity_status = drop_to_guest_identity();
     if (identity_status != 0) {
         dprintf(STDERR_FILENO, "steamdroid: identity transition failed: %d (%s)\n",
