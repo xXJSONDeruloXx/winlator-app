@@ -1,0 +1,28 @@
+#!/bin/sh
+# Android hides /proc/net TCP ownership from unprivileged applications.
+# Steam uses lsof here to identify the loopback WebSocket NetworkService;
+# answer only that query from the visible process table and fail closed for
+# unrelated invocations because Holo does not ship a general lsof binary.
+case " $* " in
+    *" -i TCP@127.0.0.1:"*)
+        port=0
+        for arg do
+            case "$arg" in
+                TCP@127.0.0.1:*) port=${arg##*:} ;;
+            esac
+        done
+        ps -eo pid=,ppid=,args= | awk -v uid="$(id -u)" -v port="$port" '
+            /[/]steamrtarm64[/]steamwebhelper/ && /NetworkService/ {
+                print "p" $1
+                print "R" $2
+                print "u" uid
+                print "n127.0.0.1:" port "->127.0.0.1:27060"
+                found=1
+            }
+            END { if (!found) exit 1 }
+        '
+        ;;
+    *)
+        exit 1
+        ;;
+esac

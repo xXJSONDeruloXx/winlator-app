@@ -28,6 +28,8 @@ public final class SteamClientProvisioner {
         "steamdroid/libsteamdroid_sysv_sem_shim.so";
     private static final String SYSV_SEM_SHIM_RELATIVE_PATH =
         "steamdroid/libsteamdroid_sysv_sem_shim.so";
+    private static final String LSOF_ASSET = "steamdroid/lsof";
+    private static final String LSOF_RELATIVE_PATH = "steamdroid/bin/lsof";
     private static final long MAX_MANIFEST_BYTES = 4L * 1024L * 1024L;
     private static final long MAX_ENTRY_BYTES = 512L * 1024L * 1024L;
     private static final long MAX_UNPACKED_BYTES = 1024L * 1024L * 1024L;
@@ -219,28 +221,33 @@ public final class SteamClientProvisioner {
         // account cannot drift apart.
         SteamIdentity.capture().writeGuestIdentityViews(holoRoot);
         ensureSteamHomeLayout();
-        File target = getSysvSemaphoreShim();
+        stageAsset(SYSV_SEM_SHIM_ASSET, SYSV_SEM_SHIM_RELATIVE_PATH, 0755,
+            MAX_COMPAT_LIBRARY_BYTES);
+        stageAsset(LSOF_ASSET, LSOF_RELATIVE_PATH, 0755, 64 * 1024);
+    }
+
+    private void stageAsset(String assetName, String relativePath, int mode, long maxBytes)
+        throws IOException {
+        File target = new File(steamRoot, relativePath);
         File parent = target.getParentFile();
         if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) {
             throw new IOException("unable to create Steam compatibility directory");
         }
         File partial = new File(target.getPath() + ".partial");
         if (partial.exists()) throw new IOException("refusing to reuse partial Steam compatibility asset");
-        try (InputStream input = context.getAssets().open(SYSV_SEM_SHIM_ASSET);
+        try (InputStream input = context.getAssets().open(assetName);
              java.io.OutputStream output = new BufferedOutputStream(new FileOutputStream(partial))) {
             byte[] buffer = new byte[64 * 1024];
             long copied = 0;
             int length;
             while ((length = input.read(buffer)) != -1) {
                 copied += length;
-                if (copied > MAX_COMPAT_LIBRARY_BYTES) {
-                    throw new IOException("Steam compatibility asset is too large");
-                }
+                if (copied > maxBytes) throw new IOException("Steam compatibility asset is too large");
                 output.write(buffer, 0, length);
             }
             if (copied == 0) throw new IOException("Steam compatibility asset is empty");
         }
-        chmod(partial, 0755);
+        chmod(partial, mode);
         if (target.exists() && !FileUtils.delete(target)) {
             FileUtils.delete(partial);
             throw new IOException("unable to replace Steam compatibility asset");

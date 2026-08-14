@@ -1636,7 +1636,7 @@ static void native_steam_child(char **argv) {
         setenv("XDG_RUNTIME_DIR", runtime_directory, 1) != 0 ||
         setenv("XDG_CACHE_HOME", "/home/steam/.cache", 1) != 0 ||
         setenv("MESA_SHADER_CACHE_DIR", "/home/steam/.cache/mesa_shader_cache", 1) != 0 ||
-        setenv("PATH", "/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/bin:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/bin:/usr/bin:/bin", 1) != 0 ||
+        setenv("PATH", "/home/steam/.local/share/Steam/steamdroid/bin:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/bin:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/bin:/usr/bin:/bin", 1) != 0 ||
         setenv("LD_LIBRARY_PATH", "/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs:/usr/lib:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steam-runtime-steamrt-arm64/steamrt4_platform_4.0.20260805.254769/files/lib/aarch64-linux-gnu/pulseaudio:/lib", 1) != 0 ||
         /* Holo's packaged Mesa is built for the msm DRM backend. Thor exposes
          * the Android KGSL device, so select the separately provisioned
