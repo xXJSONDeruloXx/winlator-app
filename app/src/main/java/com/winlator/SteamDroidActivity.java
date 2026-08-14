@@ -118,6 +118,14 @@ public class SteamDroidActivity extends AppCompatActivity {
         content.addView(controls, controlsLayout);
         setContentView(content);
         startService(new Intent(this, SteamSessionService.class).setAction(SteamSessionService.ACTION_START));
+        if ("glxinfo".equals(getIntent().getStringExtra("steamdroid.diagnostic"))) {
+            startService(new Intent(this, SteamSessionService.class)
+                .setAction(SteamSessionService.ACTION_RUN_GLXINFO));
+        }
+        else if ("xrandr".equals(getIntent().getStringExtra("steamdroid.diagnostic"))) {
+            startService(new Intent(this, SteamSessionService.class)
+                .setAction(SteamSessionService.ACTION_RUN_XRANDR));
+        }
         bindService(new Intent(this, SteamSessionService.class), serviceConnection, Context.BIND_AUTO_CREATE);
         handler.post(statusUpdater);
     }

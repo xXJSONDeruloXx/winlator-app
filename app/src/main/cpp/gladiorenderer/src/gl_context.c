@@ -88,6 +88,10 @@ static void destroyDisplayBufAttachments(GLContext* context) {
 
 static void setCurrentRenderWindow(GLContext* context, int windowId) {
     if (windowId == 0) return;
+    if (!currentRenderer) {
+        println("gladio: cannot bind window %d without a current renderer", windowId);
+        return;
+    }
     JMethods* jmethods = &context->jmethods;
     (*jmethods->env)->CallVoidMethod(jmethods->env, jmethods->obj, jmethods->clearWindowContent, windowId);
 
@@ -119,6 +123,10 @@ static void setCurrentRenderWindow(GLContext* context, int windowId) {
 }
 
 static void swapDisplayBuffers(GLContext* context, int drawableId) {
+    if (!currentRenderer) {
+        println("gladio: cannot swap drawable %d without a current renderer", drawableId);
+        return;
+    }
     GLuint framebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_FRAMEBUFFER)];
     GLuint drawFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_DRAW_FRAMEBUFFER)];
     if (framebuffer != drawFramebuffer) GLFramebuffer_bind(GL_FRAMEBUFFER, drawFramebuffer);
@@ -142,22 +150,29 @@ static void swapDisplayBuffers(GLContext* context, int drawableId) {
 }
 
 static bool isCanDrawImmediate(short requestCode) {
-    return requestCode == REQUEST_CODE_GL_BEGIN ||
-           requestCode == REQUEST_CODE_GL_END ||
-           requestCode == REQUEST_CODE_GL_DRAW_ARRAYS ||
-           requestCode == REQUEST_CODE_GL_DRAW_ELEMENTS ||
-           requestCode == REQUEST_CODE_GL_ENABLE_CLIENT_STATE ||
-           requestCode == REQUEST_CODE_GL_DISABLE_CLIENT_STATE ||
-           requestCode == REQUEST_CODE_GL_VERTEX_POINTER ||
-           requestCode == REQUEST_CODE_GL_COLOR_POINTER ||
-           requestCode == REQUEST_CODE_GL_NORMAL_POINTER ||
-           requestCode == REQUEST_CODE_GL_TEX_COORD_POINTER ||
-           requestCode == REQUEST_CODE_GL_VERTEX4F ||
-           requestCode == REQUEST_CODE_GL_COLOR4F ||
-           requestCode == REQUEST_CODE_GL_NORMAL3F ||
-           requestCode == REQUEST_CODE_GL_TEX_COORD4F ||
-           requestCode == REQUEST_CODE_GL_MULTI_TEX_COORD4F ||
-           requestCode == REQUEST_CODE_GL_ARRAY_ELEMENT ? false : true;
+    switch (requestCode) {
+        case REQUEST_CODE_SET_CURRENT_RENDER_WINDOW:
+        case REQUEST_CODE_SWAP_DISPLAY_BUFFERS:
+        case REQUEST_CODE_GL_BEGIN:
+        case REQUEST_CODE_GL_END:
+        case REQUEST_CODE_GL_DRAW_ARRAYS:
+        case REQUEST_CODE_GL_DRAW_ELEMENTS:
+        case REQUEST_CODE_GL_ENABLE_CLIENT_STATE:
+        case REQUEST_CODE_GL_DISABLE_CLIENT_STATE:
+        case REQUEST_CODE_GL_VERTEX_POINTER:
+        case REQUEST_CODE_GL_COLOR_POINTER:
+        case REQUEST_CODE_GL_NORMAL_POINTER:
+        case REQUEST_CODE_GL_TEX_COORD_POINTER:
+        case REQUEST_CODE_GL_VERTEX4F:
+        case REQUEST_CODE_GL_COLOR4F:
+        case REQUEST_CODE_GL_NORMAL3F:
+        case REQUEST_CODE_GL_TEX_COORD4F:
+        case REQUEST_CODE_GL_MULTI_TEX_COORD4F:
+        case REQUEST_CODE_GL_ARRAY_ELEMENT:
+            return false;
+        default:
+            return true;
+    }
 }
 
 static void* requestHandlerThread(void* param) {
@@ -168,21 +183,30 @@ static void* requestHandlerThread(void* param) {
     while (context->running) {
         if (!gl_recv(context->serverRing, &requestCode, &context->inputBuffer)) break;
 
-        if (isCanDrawImmediate(requestCode)) GLRenderer_drawImmediate(currentRenderer);
+        if (isCanDrawImmediate(requestCode) && currentRenderer) GLRenderer_drawImmediate(currentRenderer);
 
         switch (requestCode) {
             case REQUEST_CODE_SET_CURRENT_RENDER_WINDOW: {
                 int windowId = ArrayBuffer_getInt(&context->inputBuffer);
                 int contextId = ArrayBuffer_getInt(&context->inputBuffer);
+                println("gladio: bind window=%d context=%d current_context=%p", windowId, contextId, context->glxContext);
                 JMethods* jmethods = &context->jmethods;
                 GLXContext* glxContext = (GLXContext*)(*jmethods->env)->CallLongMethod(jmethods->env, jmethods->obj, jmethods->getGLXContextPtr, context->clientFd, contextId);
 
                 if (glxContext && context->glxContext != glxContext) {
                     destroyDisplayBuffers();
-                    eglMakeCurrent(eglGetDisplay(EGL_DEFAULT_DISPLAY), EGL_NO_SURFACE, EGL_NO_SURFACE, glxContext->eglContext);
+                    EGLDisplay eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+                    EGLBoolean madeCurrent = eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, glxContext->eglContext);
+                    println("gladio: bind context=%p egl=%p made_current=%d error=0x%x", glxContext, glxContext->eglContext, madeCurrent, eglGetError());
                     context->glxContext = glxContext;
                     currentRenderer = &glxContext->renderer;
                     GLRenderer_resetFrameCount(currentRenderer);
+                }
+
+                if (windowId != 0 && !glxContext) {
+                    println("gladio: refusing window=%d with missing context=%d", windowId, contextId);
+                    gl_send(context->clientRing, REQUEST_CODE_SET_CURRENT_RENDER_WINDOW, NULL, 0);
+                    break;
                 }
 
                 setCurrentRenderWindow(context, windowId);
@@ -191,6 +215,11 @@ static void* requestHandlerThread(void* param) {
             }
             case REQUEST_CODE_SWAP_DISPLAY_BUFFERS: {
                 int drawableId = ArrayBuffer_getInt(&context->inputBuffer);
+                println("gladio: swap drawable=%d renderer=%p", drawableId, currentRenderer);
+                if (!currentRenderer) {
+                    gl_send(context->clientRing, REQUEST_CODE_SWAP_DISPLAY_BUFFERS, NULL, 0);
+                    break;
+                }
                 currentRenderer->frameCount++;
                 swapDisplayBuffers(context, drawableId);
                 gl_send(context->clientRing, REQUEST_CODE_SWAP_DISPLAY_BUFFERS, NULL, 0);
@@ -310,14 +339,24 @@ GLXContext* createGLXContext(int contextId, GLXContext* sharedContext) {
 
     EGLint major, minor;
     success = eglInitialize(eglDisplay, &major, &minor);
-    if (!success) return NULL;
+    if (!success) {
+        println("gladio: eglInitialize failed context=%d error=0x%x", contextId, eglGetError());
+        return NULL;
+    }
 
     int numConfigs;
     EGLConfig eglConfig;
     success = eglChooseConfig(eglDisplay, confAttribList, &eglConfig, 1, &numConfigs);
-    if (!success || numConfigs != 1) return NULL;
+    if (!success || numConfigs != 1) {
+        println("gladio: eglChooseConfig failed context=%d success=%d configs=%d error=0x%x", contextId, success, numConfigs, eglGetError());
+        return NULL;
+    }
 
     EGLContext eglContext = eglCreateContext(eglDisplay, eglConfig, sharedContext ? sharedContext->eglContext : globalEGLContext, ctxAttribList);
+    if (eglContext == EGL_NO_CONTEXT) {
+        println("gladio: eglCreateContext failed context=%d shared=%p error=0x%x", contextId, sharedContext, eglGetError());
+        return NULL;
+    }
 
     GLXContext* context = calloc(1, sizeof(GLXContext));
     context->eglContext = eglContext;
@@ -326,7 +365,15 @@ GLXContext* createGLXContext(int contextId, GLXContext* sharedContext) {
     GLClientState_init(&context->renderer.clientState, sharedContext ? &sharedContext->renderer.clientState : NULL);
 
     GLX_CONTEXT_LOCK();
-    eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, context->eglContext);
+    EGLBoolean madeCurrent = eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, context->eglContext);
+    if (!madeCurrent) {
+        println("gladio: eglMakeCurrent failed context=%d egl=%p error=0x%x", contextId, context->eglContext, eglGetError());
+        GLX_CONTEXT_UNLOCK();
+        eglDestroyContext(eglDisplay, context->eglContext);
+        free(context);
+        return NULL;
+    }
+    println("gladio: created context=%d egl=%p version=%d.%d shared=%p", contextId, context->eglContext, major, minor, sharedContext);
     GLRenderer_initOnEGLContext(&context->renderer);
     eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     GLX_CONTEXT_UNLOCK();
@@ -334,6 +381,7 @@ GLXContext* createGLXContext(int contextId, GLXContext* sharedContext) {
 }
 
 void destroyGLXContext(GLXContext* context) {
+    if (!context) return;
     GLX_CONTEXT_LOCK();
     GLClientState_destroy(&context->renderer.clientState);
     EGLDisplay eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);

@@ -2,6 +2,7 @@ package com.winlator.xserver.extensions;
 
 import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_SUCCESS;
 
+import android.util.Log;
 import android.util.SparseArray;
 
 import com.winlator.xconnector.XInputStream;
@@ -153,10 +154,15 @@ public final class RandRExtension extends Extension {
 
     private void getScreenResources(XClient client, XInputStream inputStream, XOutputStream outputStream)
         throws IOException, XRequestError {
-        requireWindow(inputStream.readInt());
+        int windowId = inputStream.readInt();
+        requireWindow(windowId);
         String modeName = screen().toString();
         int paddedNameLength = (modeName.length() + 3) & ~3;
+        // The two reserved CARD32 words are part of the fixed 32-byte reply
+        // header; the length field starts counting after that header.
         int replyLength = (4 + 4 + 32 + paddedNameLength) / 4;
+        Log.d("SteamDroid.XServer.RandR", "GetScreenResources window=" + windowId +
+            " counts=1/1/1 name=" + modeName + " length=" + replyLength);
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -200,14 +206,18 @@ public final class RandRExtension extends Extension {
 
     private void getOutputInfo(XClient client, XInputStream inputStream, XOutputStream outputStream)
         throws IOException, XRequestError {
-        requireOutput(inputStream.readInt());
+        int outputId = inputStream.readInt();
+        requireOutput(outputId);
         inputStream.skip(4); // config timestamp
         int nameLength = OUTPUT_NAME.length();
-        // The fixed reply structure is 36 bytes, so four bytes of it count
-        // toward the length field beyond X11's first 32-byte reply block.
-        // Add the one CRTC ID, one mode ID, and the padded output name.
+        // The fixed reply structure is exactly the 32-byte X11 reply block;
+        // length therefore covers only the variable CRTC, mode, clone and
+        // name arrays that follow it.
         int paddedNameLength = (nameLength + 3) & ~3;
-        int replyLength = (4 + 4 + 4 + paddedNameLength) / 4;
+        int replyLength = (4 + 4 + paddedNameLength) / 4;
+        Log.d("SteamDroid.XServer.RandR", "GetOutputInfo output=0x" + Integer.toHexString(outputId) +
+            " crtc=0x" + Integer.toHexString(CRTC_ID) + " mode=0x" + Integer.toHexString(MODE_ID) +
+            " name=" + OUTPUT_NAME + " length=" + replyLength);
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -250,9 +260,12 @@ public final class RandRExtension extends Extension {
 
     private void getCrtcInfo(XClient client, XInputStream inputStream, XOutputStream outputStream)
         throws IOException, XRequestError {
-        requireCrtc(inputStream.readInt());
+        int crtcId = inputStream.readInt();
+        requireCrtc(crtcId);
         inputStream.skip(4); // config timestamp
         ScreenInfo screen = screen();
+        Log.d("SteamDroid.XServer.RandR", "GetCrtcInfo crtc=0x" + Integer.toHexString(crtcId) +
+            " mode=0x" + Integer.toHexString(MODE_ID) + " size=" + screen + " length=2");
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -415,7 +428,13 @@ public final class RandRExtension extends Extension {
     @Override
     public void handleRequest(XClient client, XInputStream inputStream, XOutputStream outputStream)
         throws IOException, XRequestError {
-        switch (client.getRequestData()) {
+        int request = client.getRequestData();
+        if (request == GET_SCREEN_RESOURCES || request == GET_SCREEN_RESOURCES_CURRENT ||
+            request == GET_OUTPUT_INFO || request == GET_CRTC_INFO) {
+            Log.d("SteamDroid.XServer.RandR", "request fd=" + client.fd + " sequence=" +
+                (client.getSequenceNumber() & 0xffff) + " minor=" + request);
+        }
+        switch (request) {
             case QUERY_VERSION:
                 queryVersion(client, inputStream, outputStream);
                 break;

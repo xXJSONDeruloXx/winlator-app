@@ -136,7 +136,8 @@ public class XServer {
     public boolean shouldAutoMapTopLevelWindow(Window window) {
         return host.autoMapTopLevelWindows() &&
             window.getParent() == windowManager.rootWindow &&
-            window.isInputOutput() && window.getWidth() > 1 && window.getHeight() > 1;
+            window.isInputOutput() && !window.attributes.isOverrideRedirect() &&
+            window.getWidth() > 1 && window.getHeight() > 1;
     }
 
     public String getNativeLibraryDir() {

@@ -432,23 +432,34 @@ public abstract class WindowRequests {
 
     public static void getGeometry(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         int drawableId = inputStream.readInt();
-        Drawable drawable =  client.xServer.drawableManager.getDrawable(drawableId);
-        if (drawable == null) throw new BadDrawable(drawableId);
         Window window = client.xServer.windowManager.getWindow(drawableId);
+        Drawable drawable = client.xServer.drawableManager.getDrawable(drawableId);
+
+        // GetGeometry accepts both ordinary drawables and windows. InputOnly
+        // windows deliberately have no pixel backing store, but they still
+        // have a valid geometry and are queried by X11 input/IM clients.
+        // Treat the window resource as authoritative when present and use a
+        // zero depth for InputOnly, as required by the core protocol.
+        if (window == null && drawable == null) throw new BadDrawable(drawableId);
         short x = window != null ? window.getX() : 0;
         short y = window != null ? window.getY() : 0;
         short borderWidth = window != null ? window.getBorderWidth() : 0;
+        byte depth = window != null && window.isInputOutput()
+            ? window.getContent().visual.depth
+            : (drawable != null ? drawable.visual.depth : 0);
+        short width = window != null ? window.getWidth() : drawable.width;
+        short height = window != null ? window.getHeight() : drawable.height;
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
-            outputStream.writeByte(drawable.visual.depth);
+            outputStream.writeByte(depth);
             outputStream.writeShort(client.getSequenceNumber());
             outputStream.writeInt(0);
             outputStream.writeInt(client.xServer.windowManager.rootWindow.id);
             outputStream.writeShort(x);
             outputStream.writeShort(y);
-            outputStream.writeShort(drawable.width);
-            outputStream.writeShort(drawable.height);
+            outputStream.writeShort(width);
+            outputStream.writeShort(height);
             outputStream.writeShort(borderWidth);
             outputStream.writePad(10);
         }

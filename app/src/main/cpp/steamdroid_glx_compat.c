@@ -91,7 +91,11 @@ int glXGetConfig(Display *display, XVisualInfo *visual, int attribute, int *valu
             *value = attribute == 0x800b ? 1 : 0;
             return 0;
         case 0x8010: /* GLX_DRAWABLE_TYPE */
-            *value = 1; /* GLX_WINDOW_BIT */
+            /* Keep this in lockstep with GLXExtension.getFBConfigs().
+             * ANGLE probes pbuffer and pixmap support while bringing up its
+             * transparent X11 surface; reporting window-only here makes it
+             * reject the same config that the server advertises. */
+            *value = 1 | 2 | 4; /* GLX_WINDOW_BIT | PIXMAP_BIT | PBUFFER_BIT */
             return 0;
         case 0x8011: /* GLX_RENDER_TYPE */
         case 0x8013: /* GLX_FBCONFIG_ID */

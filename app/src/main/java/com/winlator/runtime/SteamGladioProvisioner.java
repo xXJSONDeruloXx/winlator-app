@@ -12,42 +12,23 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 
 /** Stages Winlator's GLX client for the embedded XServerCore GLX endpoint. */
 public final class SteamGladioProvisioner {
     private static final String GLADIO_ASSET = "graphics_driver/gladio-1.0.tzst";
+    private static final String GLADIO_BUILD_ID = "gladio-steamdroid-pbuffer-es-v1";
+    private static final String GLADIO_BUILD_MARKER = ".steamdroid-build";
     private static final String GLX_COMPAT_LIBRARY = "libsteamdroid_glx_compat.so";
     private static final byte[] GLADIO_LEGACY_X11_SOCKET =
         "/data/data/com.winlator/files/rootfs/tmp/.X11-unix/X0".getBytes(StandardCharsets.US_ASCII);
     private static final byte[] GLADIO_GUEST_X11_SOCKET =
         "/tmp/.X11-unix/X0".getBytes(StandardCharsets.US_ASCII);
-    private static final long GLADIO_QUERY_EXTENSION_OFFSET = 0x56070L;
-    private static final long GLADIO_GET_CONFIG_OFFSET = 0x55d70L;
-    private static final byte[] GLADIO_QUERY_EXTENSION_PATCH = new byte[]{
-        0x61, 0x00, 0x00, (byte)0xb4, // cbz x1, set_success
-        0x03, 0x10, (byte)0x80, 0x52, // mov w3, #128
-        0x23, 0x00, 0x00, (byte)0xb9, // str w3, [x1]
-        0x42, 0x00, 0x00, (byte)0xb4, // cbz x2, return_success
-        0x5f, 0x00, 0x00, (byte)0xb9, // str wzr, [x2]
-        0x20, 0x00, (byte)0x80, 0x52, // mov w0, #1
-        (byte)0xc0, 0x03, 0x5f, (byte)0xd6 // ret
-    };
-    private static final byte[] GLADIO_GET_CONFIG_PATCH = new byte[]{
-        0x63, 0x00, 0x00, (byte)0xb4, // cbz x3, bad_attribute
-        0x24, 0x00, (byte)0x80, 0x52, // mov w4, #1
-        0x64, 0x00, 0x00, (byte)0xb9, // str w4, [x3]
-        0x00, 0x00, (byte)0x80, 0x52, // mov w0, #0
-        (byte)0xc0, 0x03, 0x5f, (byte)0xd6, // ret
-        0x40, 0x00, (byte)0x80, 0x52, // bad_attribute: mov w0, #2
-        (byte)0xc0, 0x03, 0x5f, (byte)0xd6 // ret
-    };
-
     private final Context context;
     private final File stageRoot;
     private final File library;
     private final File libraryAlias;
     private final File compatLibrary;
+    private final File buildMarker;
 
     public SteamGladioProvisioner(Context context) {
         this.context = context.getApplicationContext();
@@ -55,6 +36,7 @@ public final class SteamGladioProvisioner {
         library = new File(stageRoot, "usr/lib/libGL.so.1.7.0");
         libraryAlias = new File(stageRoot, "usr/lib/libGL.so.1");
         compatLibrary = new File(stageRoot, "usr/lib/" + GLX_COMPAT_LIBRARY);
+        buildMarker = new File(stageRoot, GLADIO_BUILD_MARKER);
     }
 
     public File getLibrary() {
@@ -65,13 +47,18 @@ public final class SteamGladioProvisioner {
         return isExecutable(library) && isExecutable(libraryAlias) && isExecutable(compatLibrary);
     }
 
+    private boolean isCurrentBuildInstalled() throws IOException {
+        if (!isInstalled() || !buildMarker.isFile()) return false;
+        byte[] bytes = Files.readAllBytes(buildMarker.toPath());
+        return GLADIO_BUILD_ID.equals(new String(bytes, StandardCharsets.US_ASCII).trim());
+    }
+
     public File ensureInstalled() throws IOException {
         // The Gladio asset may already have been provisioned by an earlier
         // build. Add the immutable APK-built interposer atomically without
         // replacing the existing renderer or touching the Holo rootfs.
-        if (isExecutable(library)) {
+        if (isCurrentBuildInstalled()) {
             patchGladioDisplayPath(library);
-            patchGladioQueryExtension(stageRoot);
             installLibraryAlias(stageRoot);
             installCompatLibrary(stageRoot);
             if (!isInstalled()) throw new IOException("Gladio compatibility staging is not executable");
@@ -82,28 +69,63 @@ public final class SteamGladioProvisioner {
         if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) {
             throw new IOException("unable to create Gladio staging parent");
         }
-        if (stageRoot.exists()) throw new IOException("refusing to reuse incomplete Gladio staging");
+        File previousStage = null;
+        File existingPreviousStage = new File(stageRoot.getPath() + ".previous");
+        if (existingPreviousStage.exists() && !stageRoot.exists() &&
+            !existingPreviousStage.renameTo(stageRoot)) {
+            throw new IOException("unable to restore previous Gladio staging");
+        }
+        if (stageRoot.exists()) {
+            previousStage = new File(stageRoot.getPath() + ".previous");
+            if (previousStage.exists()) {
+                throw new IOException("refusing to replace Gladio staging with an unresolved previous build");
+            }
+            if (!stageRoot.renameTo(previousStage)) {
+                throw new IOException("unable to preserve previous Gladio staging");
+            }
+        }
         File partial = new File(stageRoot.getPath() + ".partial");
-        if (partial.exists()) throw new IOException("refusing to reuse incomplete Gladio staging");
-        if (!partial.mkdirs()) throw new IOException("unable to create Gladio staging");
+        if (partial.exists() && !FileUtils.delete(partial)) {
+            throw new IOException("unable to discard incomplete Gladio staging");
+        }
 
-        boolean extracted = TarCompressorUtils.extract(
-            TarCompressorUtils.Type.ZSTD, context, GLADIO_ASSET, partial);
-        File stagedLibrary = new File(partial, "usr/lib/libGL.so.1.7.0");
-        if (!extracted || !stagedLibrary.isFile() || !stagedLibrary.canRead()) {
-            FileUtils.delete(partial);
-            throw new IOException("Gladio asset extraction failed validation");
+        try {
+            if (!partial.mkdirs()) throw new IOException("unable to create Gladio staging");
+
+            boolean extracted = TarCompressorUtils.extract(
+                TarCompressorUtils.Type.ZSTD, context, GLADIO_ASSET, partial);
+            File stagedLibrary = new File(partial, "usr/lib/libGL.so.1.7.0");
+            if (!extracted || !stagedLibrary.isFile() || !stagedLibrary.canRead()) {
+                throw new IOException("Gladio asset extraction failed validation");
+            }
+            patchGladioDisplayPath(stagedLibrary);
+            installLibraryAlias(partial);
+            installCompatLibrary(partial);
+            writeBuildMarker(partial);
+            if (!partial.renameTo(stageRoot)) {
+                throw new IOException("unable to commit Gladio staging");
+            }
+            if (!isInstalled()) throw new IOException("Gladio staging is not executable");
+            if (previousStage != null) FileUtils.delete(previousStage);
+            return library;
         }
-        patchGladioQueryExtension(partial);
-        patchGladioDisplayPath(stagedLibrary);
-        installLibraryAlias(partial);
-        installCompatLibrary(partial);
-        if (!partial.renameTo(stageRoot)) {
+        catch (IOException e) {
             FileUtils.delete(partial);
-            throw new IOException("unable to commit Gladio staging");
+            if (previousStage != null && !stageRoot.exists() && previousStage.exists()) {
+                previousStage.renameTo(stageRoot);
+            }
+            throw e;
         }
-        if (!isInstalled()) throw new IOException("Gladio staging is not executable");
-        return library;
+    }
+
+    private static void writeBuildMarker(File targetRoot) throws IOException {
+        File marker = new File(targetRoot, GLADIO_BUILD_MARKER);
+        try (java.io.FileOutputStream output = new java.io.FileOutputStream(marker)) {
+            output.write(GLADIO_BUILD_ID.getBytes(StandardCharsets.US_ASCII));
+            output.write('\n');
+            output.getFD().sync();
+        }
+        FileUtils.chmod(marker, 0644);
     }
 
     private static void installLibraryAlias(File targetRoot) throws IOException {
@@ -126,16 +148,6 @@ public final class SteamGladioProvisioner {
             FileUtils.delete(partial);
             throw new IOException("unable to commit Gladio library alias");
         }
-    }
-
-    private static void patchGladioQueryExtension(File targetRoot) throws IOException {
-        File target = new File(targetRoot, "usr/lib/libGL.so.1.7.0");
-        if (!isExecutable(target)) throw new IOException("staged Gladio library is unavailable");
-
-        patchGladioFunction(target, GLADIO_QUERY_EXTENSION_OFFSET,
-            GLADIO_QUERY_EXTENSION_PATCH, "query-extension");
-        patchGladioFunction(target, GLADIO_GET_CONFIG_OFFSET,
-            GLADIO_GET_CONFIG_PATCH, "get-config");
     }
 
     /**
@@ -180,29 +192,6 @@ public final class SteamGladioProvisioner {
             if (match) return offset;
         }
         return -1;
-    }
-
-    private static void patchGladioFunction(File target, long offset, byte[] patch,
-                                            String functionName) throws IOException {
-        byte[] current = new byte[patch.length];
-        try (RandomAccessFile file = new RandomAccessFile(target, "rw")) {
-            if (file.length() < offset + current.length) {
-                throw new IOException("Gladio library is too small for the " + functionName + " patch");
-            }
-            file.seek(offset);
-            file.readFully(current);
-            if (Arrays.equals(current, patch)) return;
-
-            // The first instruction of both pinned Gladio stubs is
-            // `sub sp, sp, #304`. Do not patch an unvalidated renderer build.
-            if ((current[0] & 0xff) != 0xff || (current[1] & 0xff) != 0xc3 ||
-                (current[2] & 0xff) != 0x04 || (current[3] & 0xff) != 0xd1) {
-                throw new IOException("unsupported Gladio " + functionName + " implementation");
-            }
-            file.seek(offset);
-            file.write(patch);
-            file.getFD().sync();
-        }
     }
 
     private void installCompatLibrary(File targetRoot) throws IOException {

@@ -1815,18 +1815,18 @@ static void native_steam_child(char **argv) {
             access(runtime_gtk3, R_OK) == 0 &&
             access("/usr/lib/libstdc++.so.6", R_OK) == 0) {
             preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
-                              "%s:/usr/lib/libstdc++.so.6:%s:/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
+                              "%s:/usr/lib/libstdc++.so.6:%s:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
                               glx_compat_library, runtime_gtk3);
         }
         else if (access(runtime_gtk3, R_OK) == 0 &&
                  access("/usr/lib/libstdc++.so.6", R_OK) == 0) {
             preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
-                              "/usr/lib/libstdc++.so.6:%s:/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
+                              "/usr/lib/libstdc++.so.6:%s:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
                               runtime_gtk3);
         }
         else {
             preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
-                              "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so");
+                              "/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so");
         }
     }
     else {
@@ -1839,7 +1839,7 @@ static void native_steam_child(char **argv) {
                               "/opt/steamdroid-gladio/usr/lib:/usr/lib:/lib:/home/steam/.local/share/Steam/steamrtarm64:/home/steam/.local/share/Steam/lib/aarch64-linux-gnu:/home/steam/.local/share/Steam/steamrtarm64/libs");
         }
         preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
-                          "/usr/lib/libXrandr.so.2:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so");
+                          "/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so");
     }
     if (library_length <= 0 || (size_t)library_length >= sizeof(runtime_library_path) ||
         preload_length <= 0 || (size_t)preload_length >= sizeof(runtime_preload)) _exit(126);
@@ -1884,9 +1884,10 @@ static void native_steam_child(char **argv) {
         setenv("STEAM_LAUNCH_WRAPPER_SCOPE", "0", 1) != 0 ||
         setenv("STEAM_LAUNCH_WRAPPER_JOURNAL", "0", 1) != 0 ||
         setenv("STEAM_LAUNCH_WRAPPER_AUDIO_NAMESPACE", "0", 1) != 0 ||
-        /* XRandR and the SysV semaphore shim are always scoped to the native
-         * Steam process tree. When SteamRT3C is installed, runtime_preload
-         * additionally pins the validated GTK3/Holo libstdc++ combination. */
+        /* The SysV semaphore shim is scoped to the native Steam process tree.
+         * Do not preload Holo's libXrandr into Steam Runtime binaries: its
+         * X11 ABI can bind against the Runtime's libX11 and make Chromium's
+         * XRandR probe report no displays even though Holo xrandr succeeds. */
         setenv("LD_PRELOAD", runtime_preload, 1) != 0 ||
         /* Chromium's ProcessSingleton creates its private socket directory
          * below TMPDIR. Android app-data filesystems can reject that

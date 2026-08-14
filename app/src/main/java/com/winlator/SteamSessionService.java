@@ -49,6 +49,8 @@ public class SteamSessionService extends Service {
     public static final String ACTION_INSTALL_HOLO_PACKAGES = "com.xjsonderulo.steamdroid.action.INSTALL_HOLO_PACKAGES";
     public static final String ACTION_INSTALL_STEAM = "com.xjsonderulo.steamdroid.action.INSTALL_STEAM";
     public static final String ACTION_LAUNCH_STEAM = "com.xjsonderulo.steamdroid.action.LAUNCH_STEAM";
+    public static final String ACTION_RUN_GLXINFO = "com.xjsonderulo.steamdroid.action.RUN_GLXINFO";
+    public static final String ACTION_RUN_XRANDR = "com.xjsonderulo.steamdroid.action.RUN_XRANDR";
     public static final String ACTION_RUNTIME_BWRAP_SELF_TEST =
         "com.xjsonderulo.steamdroid.action.RUNTIME_BWRAP_SELF_TEST";
     private static final String NOTIFICATION_CHANNEL = "steamdroid-session";
@@ -98,6 +100,12 @@ public class SteamSessionService extends Service {
         }
         else if (ACTION_LAUNCH_STEAM.equals(action)) {
             executor.execute(this::launchSteam);
+        }
+        else if (ACTION_RUN_GLXINFO.equals(action)) {
+            executor.execute(this::runGlxInfo);
+        }
+        else if (ACTION_RUN_XRANDR.equals(action)) {
+            executor.execute(this::runXrandr);
         }
         else if (ACTION_RUNTIME_BWRAP_SELF_TEST.equals(action)) {
             executor.execute(this::runtimeBwrapSelfTest);
@@ -187,13 +195,16 @@ public class SteamSessionService extends Service {
             steamArguments.add("-steamos3");
             steamArguments.add("-steampal");
             steamArguments.add("-steamdeck");
-            // The embedded X server has no external window manager to promote
-            // a normal Steam top-level window. Use the same explicit fullscreen
-            // handoff as the validated ARM64 Termux/X11 launcher so Steam's
-            // GamepadUI surface is created for the whole logical display.
-            steamArguments.add("-fullscreen");
-            steamArguments.add("-fulldesktopres");
+            // Android owns the fullscreen presentation. Do not pass the
+            // desktop X11 fullscreen/resolution overrides: the embedded
+            // server has no WM to complete that xwin handoff, and the native
+            // client can otherwise leave its CEF browser creation pending.
             steamArguments.add("-no-cef-sandbox");
+            // The native ARM client’s CEF GPU compositor is unstable against
+            // the embedded Android-hosted X11 path. Keep the Steam frontend
+            // on its software compositor; Steam games retain the native
+            // Turnip/Vulkan path and are not affected by this UI-only flag.
+            steamArguments.add("-cef-disable-gpu");
             // Match the validated ARM64 Steam launch profile used by the
             // sibling Termux:X11 harness. These avoid the slow client-side
             // preallocation path and keep the already-provisioned client from
@@ -219,6 +230,42 @@ public class SteamSessionService extends Service {
         }
         catch (Exception e) {
             lastStatus = "native Steam launch error: " + e.getMessage();
+            Log.e(TAG, lastStatus, e);
+        }
+    }
+
+    /** Runs the fixed Holo GLX probe inside the prepared native session. */
+    private void runGlxInfo() {
+        try {
+            ensureSessionPrepared();
+            byte[] payload = SteamNativeExecRequest.encode(
+                Arrays.asList("/usr/bin/env", "-u", "LD_PRELOAD", "/usr/bin/glxinfo", "-B"));
+            SteamControlClient.Response response = controlClient.request(
+                SteamControlProtocol.EXEC_NATIVE_STEAM, payload);
+            if (!response.isSuccess()) throw new IOException("glxinfo status=" + response.status);
+            lastStatus = "glxinfo started: " + response.payloadAsString().trim();
+            Log.i(TAG, lastStatus);
+        }
+        catch (Exception e) {
+            lastStatus = "glxinfo error: " + e.getMessage();
+            Log.e(TAG, lastStatus, e);
+        }
+    }
+
+    /** Runs the fixed Holo RandR probe inside the prepared native session. */
+    private void runXrandr() {
+        try {
+            ensureSessionPrepared();
+            byte[] payload = SteamNativeExecRequest.encode(
+                Arrays.asList("/usr/bin/env", "-u", "LD_PRELOAD", "/usr/bin/xrandr", "--query"));
+            SteamControlClient.Response response = controlClient.request(
+                SteamControlProtocol.EXEC_NATIVE_STEAM, payload);
+            if (!response.isSuccess()) throw new IOException("xrandr status=" + response.status);
+            lastStatus = "xrandr started: " + response.payloadAsString().trim();
+            Log.i(TAG, lastStatus);
+        }
+        catch (Exception e) {
+            lastStatus = "xrandr error: " + e.getMessage();
             Log.e(TAG, lastStatus, e);
         }
     }

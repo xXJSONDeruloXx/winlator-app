@@ -34,6 +34,7 @@ extra	libxfont2	2.0.7-1	bd2671b45d4b5acf8f203a7ff98194750f6f5e3b6b51d1dde36c6c7c
 extra	libxft	2.3.9-1	4f5743f0c6e7f0ab9636b21992e09ac1dd0a46a43c15a5aa082619f024c24e6d	libxft-2.3.9-1-aarch64.pkg.tar.zst
 extra	libxi	1.8.2-1	2ecac1e436f0b5fc249e597d180603097f52b46d43c9175ef53b814a8d9d4bcc	libxi-1.8.2-1-aarch64.pkg.tar.zst
 extra	libxkbcommon	1.13.0-1	203009e542567056af118956bd974934b4b820dfb0ce6bbe635791d8eb6d48aa	libxkbcommon-1.13.0-1-aarch64.pkg.tar.zst
+extra	libxkbcommon-x11	1.13.0-1	fecbc48558a2632655baf9b4b0bf6dcf1dddca67fd8dd477a77f47e61e2984bb	libxkbcommon-x11-1.13.0-1-aarch64.pkg.tar.zst
 extra	libxkbfile	1.1.3-1	b7aa2dab4f212d511af47d6d5258196c847a9eba9881417d9ad1f5ac3adc2116	libxkbfile-1.1.3-1-aarch64.pkg.tar.zst
 extra	libxrandr	1.5.4-1	e95dab93d8decc216febb378b5548006ac20a006128bcb4fcfb9fb176f5181a2	libxrandr-1.5.4-1-aarch64.pkg.tar.zst
 extra	libxrender	0.9.12-1	ef4fd7f2535503bca6956f6d665e02c6c6ff3b48e75a8703dd211aa3af86a673	libxrender-0.9.12-1-aarch64.pkg.tar.zst
@@ -106,6 +107,7 @@ extra	shared-mime-info	2.4-2	a182bece2fad7340a3753baa669ecf98a44f4acf02f923a9650
 extra	tinysparql	3.10.1-2	16509f8823e5e9c4ecc4cb83ed494fedae7f08313fdf957af350ee8189b61092	tinysparql-3.10.1-2-aarch64.pkg.tar.zst
 extra	xorg-xprop	1.2.8-1	bdf2eb4cc1bf9650bd4404557e66562e9dfa644d612a12470c46c9b595efdc8a	xorg-xprop-1.2.8-1-aarch64.pkg.tar.zst
 extra	xorg-xwininfo	1.1.6-2	1da505cb72aa6b1d147f0a2fac493325450cab84381f7adb43cc9fc5920ed007	xorg-xwininfo-1.1.6-2-aarch64.pkg.tar.zst
+extra	mesa-utils	9.0.0-7	a60c4f3f824758269fff11df48bdb92f39e55b5f432a4451fa8cbe032835ece8	mesa-utils-9.0.0-7-aarch64.pkg.tar.zst
 archlinuxarm	atk	2.38.0-1	144eebae9d0854d193a1243c0599c52747a8941ec5d795bf619092f10b5fda5d	atk-2.38.0-1-aarch64.pkg.tar.xz
 archlinuxarm	gtk2	2.24.33-2	a2927d0e2b2b3e0b8e13cfb88adfa947a449d93856abd782f08dae5aee5aad40	gtk2-2.24.33-2-aarch64.pkg.tar.xz
 extra	libpipewire	1:1.4.9-1	e85332b152c7357a684b0f6d623e80e7aeee839877df17a5e9cad6962e863de2	libpipewire-1:1.4.9-1-aarch64.pkg.tar.zst

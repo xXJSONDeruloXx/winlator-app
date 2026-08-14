@@ -33,7 +33,7 @@ public class GLXExtension extends Extension {
     private static final byte DEFAULT_FBCONFIG_ID = 1;
     private final SparseArray<SparseLongArray> clientGLXContexts = new SparseArray<>();
     private final SparseArray<SparseLongArray> clientGLContexts = new SparseArray<>();
-    private final String glxExtensions = "GLX_ARB_create_context GLX_ARB_get_proc_address";
+    private final String glxExtensions = "GLX_ARB_create_context GLX_ARB_create_context_profile GLX_EXT_create_context_es_profile GLX_ARB_get_proc_address";
     private final Callback<XClient> onDestroyClientListener = (client) -> {
         destroyAllGLContexts(client.fd);
         destroyAllGLXContexts(client.fd);
@@ -206,7 +206,11 @@ public class GLXExtension extends Extension {
     }
 
     private void queryVersion(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
-        inputStream.skip(8);
+        int requestedMajor = inputStream.readInt();
+        int requestedMinor = inputStream.readInt();
+        Log.d(TAG, "QueryVersion sequence=" + (client.getSequenceNumber() & 0xffff) +
+            " requested=" + requestedMajor + "." + requestedMinor +
+            " reply=" + MAJOR_VERSION + "." + MINOR_VERSION);
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -334,7 +338,7 @@ public class GLXExtension extends Extension {
             GLXEnums.GLX_TRANSPARENT_GREEN_VALUE, 0,
             GLXEnums.GLX_TRANSPARENT_BLUE_VALUE, 0,
             GLXEnums.GLX_TRANSPARENT_ALPHA_VALUE, 0,
-            GLXEnums.GLX_DRAWABLE_TYPE, GLXEnums.GLX_WINDOW_BIT,
+            GLXEnums.GLX_DRAWABLE_TYPE, GLXEnums.GLX_WINDOW_BIT | GLXEnums.GLX_PIXMAP_BIT | GLXEnums.GLX_PBUFFER_BIT,
             GLXEnums.GLX_RENDER_TYPE, GLXEnums.GLX_RGBA_BIT,
             GLXEnums.GLX_RED_SIZE, 8,
             GLXEnums.GLX_GREEN_SIZE, 8,
@@ -408,18 +412,23 @@ public class GLXExtension extends Extension {
 
         int glMajorVersion = 3;
         int glMinorVersion = 3;
+        int profileMask = 0;
         for (int i = 0; i < numAttribs; i++) {
             int name = inputStream.readInt();
             int value = inputStream.readInt();
 
             if (name == GLXEnums.GLX_CONTEXT_MAJOR_VERSION_ARB) glMajorVersion = value;
             else if (name == GLXEnums.GLX_CONTEXT_MINOR_VERSION_ARB) glMinorVersion = value;
+            else if (name == GLXEnums.GLX_CONTEXT_PROFILE_MASK_ARB) profileMask = value;
         }
 
-        boolean success = glMajorVersion <= 3 && glMinorVersion <= 3;
+        boolean esProfile = (profileMask & GLXEnums.GLX_CONTEXT_ES_PROFILE_BIT_EXT) != 0;
+        boolean coreProfile = profileMask == GLXEnums.GLX_CONTEXT_CORE_PROFILE_BIT_ARB;
+        boolean supportedProfile = profileMask == 0 || esProfile || coreProfile;
+        boolean success = supportedProfile && glMajorVersion <= 3 && glMinorVersion <= 3;
         Log.d(TAG, "CreateContextAttribsARB sequence=" + (client.getSequenceNumber() & 0xffff) +
             " fbconfig=" + fbConfigId + " version=" + glMajorVersion + "." + glMinorVersion +
-            " success=" + success);
+            " profile=0x" + Integer.toHexString(profileMask) + " success=" + success);
         if (success) {
             createGLXContextForClient(client, contextId, shareContext);
         }
