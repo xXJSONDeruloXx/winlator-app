@@ -241,9 +241,16 @@ public abstract class WindowRequests {
             }
             else {
                 byte[] data = property.data.array();
-                int offset = longOffset * 4;
-                int length = Math.min(data.length - offset, longLength * 4);
-                if (length < 0) throw new BadValue(longOffset);
+                // GetProperty's long-offset is measured in four-byte units.
+                // An offset past the end of the property is a valid empty
+                // result, not BadValue; CEF uses this while probing mutable
+                // window properties. Keep the arithmetic wide so malformed
+                // client values cannot wrap into a negative array range.
+                long offsetLong = (long)longOffset * 4L;
+                long requestedLong = (long)longLength * 4L;
+                int offset = offsetLong >= data.length ? data.length : (int)offsetLong;
+                int requested = requestedLong >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int)requestedLong;
+                int length = Math.min(data.length - offset, requested);
                 bytesAfter = data.length - (offset + length);
 
                 outputStream.writeByte(RESPONSE_CODE_SUCCESS);

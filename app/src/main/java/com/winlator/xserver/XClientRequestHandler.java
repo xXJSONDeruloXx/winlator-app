@@ -478,6 +478,7 @@ public class XClientRequestHandler implements RequestHandler {
                 " sequence=" + (client.getSequenceNumber() & 0xffff) +
                 " major=" + (opcode & 0xff) +
                 " minor=" + (client.getRequestData() & 0xff) +
+                " data=" + e.getData() +
                 " extension=" + (extension != null ? extension.getName() : "core") +
                 " error=" + e.getClass().getSimpleName());
             client.skipRequest();
