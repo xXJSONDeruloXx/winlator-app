@@ -111,10 +111,10 @@ public final class RenderExtension extends Extension {
             PICT_SCREEN_BYTES +
             numDepths * PICT_DEPTH_BYTES +
             numVisuals * PICT_VISUAL_BYTES;
-        // The reply length counts everything after the generic 32-byte X11
-        // reply header, including the six CARD32 fields below as well as the
-        // variable format/screen/depth/visual payload.
-        int replyLength = (6 * 4 + replyBytes) / 4;
+        // The six CARD32 fields below are part of the fixed 32-byte X11
+        // reply header. reply.length therefore counts only the variable
+        // format/screen/depth/visual payload that follows it.
+        int replyLength = replyBytes / 4;
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
