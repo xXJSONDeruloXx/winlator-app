@@ -1792,37 +1792,31 @@ static void native_steam_child(char **argv) {
                               runtime_files_lib, runtime_pulse_lib);
         }
 
-        /*
-         * The client SDL3 ABI comes from steamrtarm64, but GL/X11 must be a
+        /* The client SDL3 ABI comes from steamrtarm64, but GL/X11 must be a
          * single Holo provider set.  Letting the Steam Runtime sidecar win
          * globally mixes its X client libraries with Holo's XServerCore and
          * leaves GLX without the matching Mesa/X11 symbols.  Holo is first in
          * the search path for that reason; SDL3 is absent from Holo and still
-         * resolves from the native ARM client below it.
-         *
-         * Steam's ARM client also probes a GTK3-only symbol while bringing up
-         * its web UI.  Preload the real GTK3 library from the discovered
-         * SteamRT3C platform, never an app-created compatibility shim.  Keep
-         * Holo's libstdc++ ahead of the sidecar so Holo Mesa's C++ ABI remains
-         * coherent with the selected GL provider.
+         * resolves from the native ARM client below it.  Do not globally
+         * preload SteamRT GTK3: its hard dependency on libatk-bridge pulls
+         * Holo's libatspi into Runtime Launch Service with the wrong GLib ABI.
+         * Steam can resolve GTK3 from its normal runtime search path when it
+         * needs it.
          */
-        char runtime_gtk3[PATH_MAX];
-        length = snprintf(runtime_gtk3, sizeof(runtime_gtk3),
-                          "%s/libgtk-3.so.0", runtime_files_lib);
-        if (length <= 0 || (size_t)length >= sizeof(runtime_gtk3)) _exit(126);
         const char *glx_compat_library = "/opt/steamdroid-gladio/usr/lib/libsteamdroid_glx_compat.so";
+        const char *xrandr_library = "/usr/lib/libXrandr.so.2";
         if (access(glx_compat_library, R_OK) == 0 &&
-            access(runtime_gtk3, R_OK) == 0 &&
+            access(xrandr_library, R_OK) == 0 &&
             access("/usr/lib/libstdc++.so.6", R_OK) == 0) {
             preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
-                              "%s:/usr/lib/libstdc++.so.6:%s:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
-                              glx_compat_library, runtime_gtk3);
+                              "%s:%s:/usr/lib/libstdc++.so.6:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
+                              glx_compat_library, xrandr_library);
         }
-        else if (access(runtime_gtk3, R_OK) == 0 &&
+        else if (access(xrandr_library, R_OK) == 0 &&
                  access("/usr/lib/libstdc++.so.6", R_OK) == 0) {
             preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
-                              "/usr/lib/libstdc++.so.6:%s:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
-                              runtime_gtk3);
+                              "%s:/usr/lib/libstdc++.so.6:/home/steam/.local/share/Steam/steamdroid/libsteamdroid_sysv_sem_shim.so",
+                              xrandr_library);
         }
         else {
             preload_length = snprintf(runtime_preload, sizeof(runtime_preload),
