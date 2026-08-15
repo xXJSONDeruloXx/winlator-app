@@ -60,11 +60,6 @@ public final class RandRExtension extends Extension {
     // reply, including any fixed RandR fields beyond that boundary.
     private static final int X11_REPLY_HEADER_BYTES = 32;
     private static final int OUTPUT_INFO_FIXED_BYTES = 36;
-    // GetScreenResources[Current] writes two timestamps, the count fields and
-    // their reserved padding, then one CRTC, one output, and one mode before
-    // the padded mode name. All of those bytes follow the generic 32-byte X11
-    // reply header and must be included in the reply length.
-    private static final int SCREEN_RESOURCES_FIXED_BYTES_AFTER_HEADER = 56;
 
     private final SparseArray<Integer> inputSelections = new SparseArray<>();
 
@@ -167,7 +162,7 @@ public final class RandRExtension extends Extension {
         requireWindow(windowId);
         String modeName = screen().toString();
         int paddedNameLength = (modeName.length() + 3) & ~3;
-        int replyLength = (SCREEN_RESOURCES_FIXED_BYTES_AFTER_HEADER + paddedNameLength) / 4;
+        int replyLength = (4 + 4 + 32 + paddedNameLength) / 4;
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
